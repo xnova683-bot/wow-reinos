@@ -7,6 +7,7 @@
 
 -- ---------- limpieza idempotente ----------
 drop function if exists public.wow_attack(text, text, jsonb);
+drop function if exists public.wow_spy(text, text);
 drop function if exists public.wow_fleets(text);
 drop function if exists public._wow_resolve();
 drop function if exists public._wow_astat(text);
@@ -22,9 +23,11 @@ create table if not exists public.wow_fleets(
   troops   jsonb not null default '{}'::jsonb,
   loot     jsonb not null default '{}'::jsonb,
   state    text  not null default 'outbound',
+  kind     text  not null default 'attack',
   depart_ms bigint not null default 0,
   arrive_ms bigint not null default 0
 );
+alter table public.wow_fleets add column if not exists kind text not null default 'attack';
 create table if not exists public.wow_reports(
   id bigserial primary key,
   owner text not null references public.wow_users(id) on delete cascade,
@@ -67,15 +70,57 @@ declare
   ms bigint := (extract(epoch from now())*1000)::bigint;
   f wow_fleets;
   z record;
+  zt wow_users;
   a_power numeric; d_power numeric; d_tt numeric; d_wall numeric; total numeric;
   a_frac numeric; d_frac numeric; att_wins boolean;
   surv jsonb; vloot jsonb; cargo numeric;
   defg numeric; defw numeric; defo numeric; rem numeric; lg numeric; lw numeric; lo numeric;
   atk_total integer; surv_total integer; dloss integer; dp integer; ap integer;
   who text; whoatt text; ret integer;
+  detect numeric; succ boolean; bjson jsonb; tjson jsonb; tpoints integer;
 begin
-  -- ---- llegadas a destino -> batalla ----
+  -- ---- llegadas a destino ----
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
+
+    -- ===== mision de espionaje =====
+    if f.kind = 'spy' then
+      select * into zt from wow_users where id = f.target;
+      if zt.id is null then
+        insert into wow_reports(owner, kind, data, created)
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who','(reino destruido)',
+                  'success', false, 'created', ms), ms);
+        delete from wow_fleets where id = f.id;
+        continue;
+      end if;
+      zt := _wow_tick(f.target);
+      detect := least(0.6, (select coalesce(max(level),0) from wow_buildings
+                             where owner_id = f.target and bkey = 'muralla') * 0.08);
+      succ := random() >= detect;
+      if succ then
+        bjson := coalesce((select jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0)) order by v.ord)
+          from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
+          left join wow_buildings b on b.owner_id = f.target and b.bkey = v.k), '[]');
+        tjson := coalesce((select jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0)) order by v.ord)
+          from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4)) v(t,ord)
+          left join wow_troops t on t.owner_id = f.target and t.tkey = v.t), '[]');
+        tpoints := (select coalesce(sum(level),0) from wow_buildings where owner_id = f.target) * 100
+                 + (select coalesce(sum(qty),0) from wow_troops where owner_id = f.target);
+        insert into wow_reports(owner, kind, data, created)
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who', zt.name, 'success', true,
+                  'gold', zt.gold, 'wood', zt.wood, 'ore', zt.ore, 'capacity', _wow_cap(f.target),
+                  'buildings', bjson, 'troops', tjson, 'points', tpoints, 'created', ms), ms);
+      else
+        insert into wow_reports(owner, kind, data, created)
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who', zt.name, 'success', false, 'created', ms), ms);
+        insert into wow_reports(owner, kind, data, created)
+          values (f.target, 'spy_in', jsonb_build_object('dir','spy_in',
+                  'who', (select name from wow_users where id = f.attacker), 'created', ms), ms);
+      end if;
+      delete from wow_fleets where id = f.id;
+      continue;
+    end if;
+
+    -- ===== batalla normal =====
     perform _wow_tick(f.attacker);
     perform _wow_tick(f.target);
 
@@ -203,6 +248,31 @@ begin
 end $$;
 grant execute on function public.wow_attack(text, text, jsonb) to anon, authenticated;
 
+-- ---------- enviar espia ----------
+create or replace function public.wow_spy(p_token text, p_target text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; t wow_users; ms bigint; travel integer; cost numeric := 150;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  u := _wow_tick(u.id);
+  if coalesce(p_target,'') = '' then raise exception 'Elige un objetivo.'; end if;
+  if p_target = u.id then raise exception 'No puedes espiar tu propio reino.'; end if;
+  select * into t from wow_users where id = p_target and active;
+  if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
+  if t.alliance is not null and t.alliance = u.alliance then
+    raise exception 'No puedes espiar a un miembro de tu alianza.'; end if;
+  if u.gold < cost then raise exception 'Necesitas % de oro para enviar un espía.', cost; end if;
+  update wow_users set gold = gold - cost where id = u.id;
+  travel := _wow_travel(u.pos, t.pos);
+  ms := (extract(epoch from now())*1000)::bigint;
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms)
+    values (u.id, t.id, '{}'::jsonb, '{}'::jsonb, 'outbound', 'spy', ms, ms + travel*1000);
+  return jsonb_build_object('ok', true, 'travel', travel, 'cost', cost, 'target', t.name);
+end $$;
+grant execute on function public.wow_spy(text, text) to anon, authenticated;
+
 -- ---------- flotas + informes ----------
 create or replace function public.wow_fleets(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
@@ -216,11 +286,12 @@ begin
     'now', ms,
     'fleets', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'id', f.id, 'mine', f.attacker = u.id,
+        'id', f.id, 'mine', f.attacker = u.id, 'kind', f.kind,
         'who', (select name from wow_users where id = case when f.attacker = u.id then f.target else f.attacker end),
         'state', f.state, 'troops', f.troops, 'loot', f.loot, 'arrive', f.arrive_ms
       ) order by f.arrive_ms)
-      from wow_fleets f where f.attacker = u.id or f.target = u.id
+      from wow_fleets f
+      where f.attacker = u.id or (f.target = u.id and f.kind <> 'spy')
     ), '[]'),
     'reports', coalesce((
       select jsonb_agg(x.data order by x.id desc)

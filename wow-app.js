@@ -505,10 +505,23 @@ const Game = {
       <div class="profRow"><span class="k">Bando</span><span class="v">${fac}</span></div>
       <div class="profRow"><span class="k">Puntos</span><span class="v">${un(r.points)}</span></div>
       <div class="profRow"><span class="k">Alianza</span><span class="v">${r.alliance ? "[" + esc(r.alliance) + "]" : "Sin alianza"}</span></div>
-      ${canAtk ? `<div style="text-align:center;margin-top:14px"><button class="btn" id="profAtk">⚔️ Atacar a ${esc(r.name)}</button></div>` : ""}
-      ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo.</p>' : ""}`);
+      ${canAtk ? `<div style="text-align:center;margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <button class="btn" id="profAtk">⚔️ Atacar</button>
+        <button class="btn sm" id="profSpy" style="align-self:center">🔍 Espiar (150 💰)</button></div>` : ""}
+      ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo ni espiarlo.</p>' : ""}`);
     const ab = document.getElementById("profAtk");
     if(ab) ab.onclick = () => this.openAttack(r);
+    const sb = document.getElementById("profSpy");
+    if(sb) sb.onclick = () => this.openSpy(r);
+  },
+  async openSpy(r){
+    if(!confirm("¿Enviar un espía a " + r.name + "?\n\nCoste: 150 de oro.\nVerás sus recursos, defensa y tropas si no te descubren (la muralla enemiga reduce el éxito).")) return;
+    try{
+      const res = await sbRpc("wow_spy", { p_token: this.me.token, p_target: r.id });
+      modalClose();
+      toast("🔍 Espía enviado. Llegará en " + tfmt(res.travel) + ".");
+      await this.refresh();
+    }catch(e){ toast(shortMsg(e), true); }
   },
 
   /* ----- ataques (flotas + informes) ----- */
@@ -543,12 +556,15 @@ const Game = {
       html += '<div class="secTitle" style="margin-top:0">🛰️ Tus flotas</div><div class="milBox">';
       fleets.forEach(f => {
         const inc = !f.mine;
+        const isSpy = f.kind === "spy";
         const outbound = f.state === "outbound";
-        const emoji = outbound ? (inc ? "🛡️" : "⚔️") : "🏠";
-        const lab = outbound
-          ? (inc ? "en camino a atacarte" : "atacando a " + esc(f.who))
-          : (inc ? "regresando tras atacarte" : "volviendo a casa");
-        const troops = (inc && outbound) ? "Tropas enemigas en camino" : this.troopStr(f.troops);
+        const emoji = isSpy ? "🔍" : (outbound ? (inc ? "🛡️" : "⚔️") : "🏠");
+        const lab = isSpy ? "espía en camino"
+          : outbound
+            ? (inc ? "en camino a atacarte" : "atacando a " + esc(f.who))
+            : (inc ? "regresando tras atacarte" : "volviendo a casa");
+        const troops = isSpy ? "Misión de espionaje"
+          : ((inc && outbound) ? "Tropas enemigas en camino" : this.troopStr(f.troops));
         const loot = (f.loot && ((f.loot.gold||0)+(f.loot.wood||0)+(f.loot.ore||0) > 0))
           ? ` · botín 💰${un(f.loot.gold)} 🪵${un(f.loot.wood)} ⛏️${un(f.loot.ore)}` : "";
         html += `<div class="fleet${inc ? " in" : ""}">
@@ -564,21 +580,34 @@ const Game = {
     }
     html += '<div class="secTitle">📜 Informes de batalla</div>';
     if(!reps.length){
-      html += '<div class="empty">Todavía no hay batallas. Ataca a otro reino desde el 🗺️ Mapa.</div>';
+      html += '<div class="empty">Todavía no hay batallas. Ataca o espía a otro reino desde el 🗺️ Mapa.</div>';
     }else{
       reps.forEach(r => {
-        let title, cls;
+        let title, cls, det = "";
         if(r.dir === "out"){
           cls = r.win ? "win" : "lose";
           title = `⚔️ Atacaste a <b>${esc(r.who)}</b> — <b style="color:var(--${r.win ? "green" : "bad"})">${r.win ? "¡Victoria!" : "Derrota"}</b>`;
         }else if(r.dir === "in"){
           cls = r.win ? "lose" : "win";
           title = `🛡️ <b>${esc(r.who)}</b> te atacó — <b style="color:var(--${r.win ? "bad" : "green"})">${r.win ? "Perdiste" : "¡Resististe!"}</b>`;
+        }else if(r.dir === "spy"){
+          cls = r.success ? "win" : "lose";
+          title = r.success
+            ? `🔍 Espiaste a <b>${esc(r.who)}</b>`
+            : `🕵️ Espía capturado en <b>${esc(r.who)}</b>`;
+          if(r.success){
+            const b = {}; (r.buildings || []).forEach(x => b[x.key] = x.level);
+            const tr = {}; (r.troops || []).forEach(x => tr[x.key] = x.qty);
+            det = `Recursos: 💰${un(r.gold)} 🪵${un(r.wood)} ⛏️${un(r.ore)} · Tropas: ${this.troopStr(tr)} · Muralla Nv.${b.muralla || 0}, Cuartel Nv.${b.cuartel || 0} · ${un(r.points)} pts. `;
+          }else det = "No conseguiste información: te descubrieron. ";
+        }else if(r.dir === "spy_in"){
+          cls = "win";
+          title = `🕵️ Capturaste a un espía de <b>${esc(r.who)}</b>`;
+          det = "Su misión fracasó. ";
         }else{
           cls = "win";
           title = "🏠 Tus tropas volvieron a casa";
         }
-        let det = "";
         if(r.a_loss != null) det += `Bajas: ${un(r.a_loss)} atacante / ${un(r.d_loss)} defensor. `;
         const l = r.loot || {};
         if((l.gold||0)+(l.wood||0)+(l.ore||0) > 0) det += `Botín: 💰${un(l.gold)} 🪵${un(l.wood)} ⛏️${un(l.ore)}.`;
