@@ -83,19 +83,26 @@ const BLD = {
   tesoreria:  { e: "💰", n: "Tesorería",       d: "Genera oro para tu reino",         p: "+{v} oro/h" },
   almacen:    { e: "📦", n: "Almacén",         d: "Guarda más recursos",              p: "Capacidad: {v}" },
   cuartel:    { e: "⚔️", n: "Cuartel",         d: "Entrena a tus tropas",             p: "Necesario para tropas" },
+  herreria:   { e: "🛠️", n: "Herrería",        d: "Forja acero: sube el daño de tus tropas", p: "+{v}% daño de tus tropas" },
+  fortaleza:  { e: "🏯", n: "Fortaleza",       d: "Muros reforzados: tus tropas aguantan más", p: "+{v}% aguante (menos bajas)" },
+  mercado:    { e: "🏪", n: "Mercado",         d: "Rutas comerciales: más producción de recursos", p: "+{v}% producción de recursos" },
   muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino" }
 };
 const TRP = {
   soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica" },
   arquero: { e: "🏹", n: "Arquero", d: "Ataca a distancia" },
   jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida" },
-  mago:    { e: "🔮", n: "Mago",    d: "Daño mágico" }
+  mago:    { e: "🔮", n: "Mago",    d: "Daño mágico" },
+  paladin: { e: "🛡️", n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones" },
+  dragon:  { e: "🐉", n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos" }
 };
 const CTR = {
-  soldado: { up: "🐎 jinete",                dn: "🏹 arquero" },
-  arquero: { up: "🗡️ soldado y 🔮 mago",     dn: "🐎 jinete" },
-  jinete:  { up: "🏹 arquero",               dn: "🗡️ soldado y 🔮 mago" },
-  mago:    { up: "🗡️ soldado y 🐎 jinete",   dn: "🏹 arquero" }
+  soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
+  arquero: { up: "🗡️ soldado, 🔮 mago y 🐉 dragón", dn: "🐎 jinete" },
+  jinete:  { up: "🏹 arquero y 🛡️ paladín",    dn: "🗡️ soldado, 🔮 mago y 🐉 dragón" },
+  mago:    { up: "🗡️ soldado y 🐎 jinete",     dn: "🏹 arquero, 🛡️ paladín y 🐉 dragón" },
+  paladin: { up: "🔮 mago y 🐉 dragón",        dn: "🐎 jinete" },
+  dragon:  { up: "🗡️ soldado, 🐎 jinete y 🔮 mago", dn: "🏹 arquero y 🛡️ paladín" }
 };
 
 /* posiciones FIJAS de los 20 castillos sobre el mapa (x, y) */
@@ -669,7 +676,7 @@ const Game = {
     modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
       <p style="color:var(--dim);font-size:13px;margin:4px 0 8px">Elige cuántas tropas enviar. La batalla se resuelve al llegar; los supervivientes vuelven con el botín.</p>
       ${rows}
-      <p style="color:var(--dim);font-size:11px;margin-top:10px;line-height:1.5">⚖️ Contadores: 🏹 arquero ▸ 🗡️ soldado ▸ 🐎 jinete ▸ 🏹 arquero · 🔮 mago arrasa a soldado y jinete, pero teme al arquero. El ejército con ventaja de tipo (y números) rompe antes la moral del rival.</p>
+      <p style="color:var(--dim);font-size:11px;margin-top:10px;line-height:1.5">⚖️ Contadores: 🗡️ soldado ▸ 🐎 jinete · 🏹 arquero ▸ soldado, 🔮 mago y 🐉 dragón · 🐎 jinete ▸ arquero y 🛡️ paladín · 🔮 mago ▸ soldado y jinete · 🛡️ paladín ▸ mago y dragón · 🐉 dragón ▸ soldado, jinete y mago. El ejército con ventaja de tipo (y números) rompe antes la moral del rival.</p>
       ${travel != null ? `<p style="color:var(--dim);font-size:12px;margin-top:10px">⏱ Viaje de ida: ${tfmt(travel)} · vuelta: otro tanto.</p>` : ""}
       <div style="text-align:center;margin-top:14px"><button class="btn" id="atkGo">⚔️ Enviar ataque</button></div>`);
     const go = document.getElementById("atkGo");
