@@ -143,12 +143,14 @@ const Auth = {
         $("#tabBld").classList.toggle("hidden", Game.tab !== "bld");
         $("#tabTroop").classList.toggle("hidden", Game.tab !== "troop");
         $("#tabMap").classList.toggle("hidden", Game.tab !== "map");
+        $("#tabMil").classList.toggle("hidden", Game.tab !== "mil");
         $("#tabAlly").classList.toggle("hidden", Game.tab !== "ally");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
         if(Game.tab === "troop") Game.renderTroop();
         if(Game.tab === "map") Game.loadMap();
+        if(Game.tab === "mil") Game.loadMil();
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
       };
     });
@@ -254,6 +256,7 @@ const Game = {
       this.renderBld(); this.renderTroop(); this.tick();
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
       if(this.tab === "map") this.loadMap();
+      if(this.tab === "mil") this.loadMil();
     }catch(e){ toast(shortMsg(e), true); }
   },
   loop(){
@@ -286,6 +289,10 @@ const Game = {
       if(rem <= 0 && !this.syncing){ this.syncing = true; this.refresh().finally(() => { this.syncing = false; }); }
     }else{
       box.classList.add("hidden");
+    }
+    if(this.tab === "mil"){
+      const due = this.updateMilTimers();
+      if(due && !this.milSyncing){ this.milSyncing = true; this.loadMil().finally(() => { this.milSyncing = false; }); }
     }
   },
 
@@ -490,11 +497,139 @@ const Game = {
   openProfile(pos){
     const r = (this.mapList || []).find(x => x.pos === pos); if(!r) return;
     const fac = r.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
+    const myTag = (this.st && this.st.ally_tag) || "";
+    const sameAlly = !!r.alliance && r.alliance === myTag;
+    const canAtk = !r.me && !sameAlly;
     modal(`<h2 style="margin-top:0;color:var(--gold)">🏰 ${esc(r.name)}</h2>
       ${r.me ? '<p style="color:var(--green);margin:0 0 8px">Este es tu reino</p>' : ""}
       <div class="profRow"><span class="k">Bando</span><span class="v">${fac}</span></div>
       <div class="profRow"><span class="k">Puntos</span><span class="v">${un(r.points)}</span></div>
-      <div class="profRow"><span class="k">Alianza</span><span class="v">${r.alliance ? "[" + esc(r.alliance) + "]" : "Sin alianza"}</span></div>`);
+      <div class="profRow"><span class="k">Alianza</span><span class="v">${r.alliance ? "[" + esc(r.alliance) + "]" : "Sin alianza"}</span></div>
+      ${canAtk ? `<div style="text-align:center;margin-top:14px"><button class="btn" id="profAtk">⚔️ Atacar a ${esc(r.name)}</button></div>` : ""}
+      ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo.</p>' : ""}`);
+    const ab = document.getElementById("profAtk");
+    if(ab) ab.onclick = () => this.openAttack(r);
+  },
+
+  /* ----- ataques (flotas + informes) ----- */
+  troopStr(t){
+    if(!t) return "—";
+    const parts = Object.keys(t).filter(k => Number(t[k]) > 0)
+      .map(k => `${(TRP[k] || {}).e || "⚔️"}${un(t[k])}`);
+    return parts.length ? parts.join(" ") : "—";
+  },
+  async loadMil(){
+    if(!this.me) return;
+    try{
+      const d = await sbRpc("wow_fleets", { p_token: this.me.token });
+      this.milData = d || { fleets: [], reports: [] };
+      this.renderMil();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  updateMilTimers(){
+    let due = false;
+    document.querySelectorAll("#tabMil [data-arrive]").forEach(el => {
+      const rem = (Number(el.dataset.arrive) - Date.now()) / 1000;
+      el.textContent = rem > 0 ? tfmt(rem) : "…";
+      if(rem <= 0) due = true;
+    });
+    return due;
+  },
+  renderMil(){
+    const d = this.milData || { fleets: [], reports: [] };
+    const fleets = d.fleets || [], reps = d.reports || [];
+    let html = "";
+    if(fleets.length){
+      html += '<div class="secTitle" style="margin-top:0">🛰️ Tus flotas</div><div class="milBox">';
+      fleets.forEach(f => {
+        const inc = !f.mine;
+        const outbound = f.state === "outbound";
+        const emoji = outbound ? (inc ? "🛡️" : "⚔️") : "🏠";
+        const lab = outbound
+          ? (inc ? "en camino a atacarte" : "atacando a " + esc(f.who))
+          : (inc ? "regresando tras atacarte" : "volviendo a casa");
+        const troops = (inc && outbound) ? "Tropas enemigas en camino" : this.troopStr(f.troops);
+        const loot = (f.loot && ((f.loot.gold||0)+(f.loot.wood||0)+(f.loot.ore||0) > 0))
+          ? ` · botín 💰${un(f.loot.gold)} 🪵${un(f.loot.wood)} ⛏️${un(f.loot.ore)}` : "";
+        html += `<div class="fleet${inc ? " in" : ""}">
+          <span class="fi">${emoji}</span>
+          <div class="fmain">
+            <div class="ft">${esc(f.who)} <span style="color:var(--dim)">· ${lab}</span></div>
+            <div class="fd">${troops}${loot}</div>
+          </div>
+          <span class="fcount" data-arrive="${f.arrive}">…</span>
+        </div>`;
+      });
+      html += "</div>";
+    }
+    html += '<div class="secTitle">📜 Informes de batalla</div>';
+    if(!reps.length){
+      html += '<div class="empty">Todavía no hay batallas. Ataca a otro reino desde el 🗺️ Mapa.</div>';
+    }else{
+      reps.forEach(r => {
+        let title, cls;
+        if(r.dir === "out"){
+          cls = r.win ? "win" : "lose";
+          title = `⚔️ Atacaste a <b>${esc(r.who)}</b> — <b style="color:var(--${r.win ? "green" : "bad"})">${r.win ? "¡Victoria!" : "Derrota"}</b>`;
+        }else if(r.dir === "in"){
+          cls = r.win ? "lose" : "win";
+          title = `🛡️ <b>${esc(r.who)}</b> te atacó — <b style="color:var(--${r.win ? "bad" : "green"})">${r.win ? "Perdiste" : "¡Resististe!"}</b>`;
+        }else{
+          cls = "win";
+          title = "🏠 Tus tropas volvieron a casa";
+        }
+        let det = "";
+        if(r.a_loss != null) det += `Bajas: ${un(r.a_loss)} atacante / ${un(r.d_loss)} defensor. `;
+        const l = r.loot || {};
+        if((l.gold||0)+(l.wood||0)+(l.ore||0) > 0) det += `Botín: 💰${un(l.gold)} 🪵${un(l.wood)} ⛏️${un(l.ore)}.`;
+        html += `<div class="rep ${cls}"><div>${title}</div><div class="rl">${det}<span style="color:var(--dim)">${hora(r.created)}</span></div></div>`;
+      });
+    }
+    html += `<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" id="milRefresh">🔄 Actualizar</button>
+      <button class="btn sm" id="milGo">🗺️ Ir al mapa a atacar</button></div>`;
+    $("#tabMil").innerHTML = html;
+    const rb = document.getElementById("milRefresh"); if(rb) rb.onclick = () => this.loadMil();
+    const gb = document.getElementById("milGo");
+    if(gb) gb.onclick = () => { const t = document.querySelector('.gameTabs [data-tab="map"]'); if(t) t.click(); };
+    this.updateMilTimers();
+  },
+  openAttack(r){
+    const troops = ((this.st && this.st.troops) || []).filter(t => t.qty > 0);
+    if(!troops.length){
+      modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
+        <p style="color:var(--dim)">No tienes tropas. Entrena en el Cuartel (pestaña ⚔️ Tropas) antes de atacar.</p>`);
+      return;
+    }
+    const my = (this.mapList || []).find(x => x.me);
+    const travel = (my && typeof r.pos === "number") ? Math.max(20, 15 + 3 * Math.abs(my.pos - r.pos)) : null;
+    const rows = troops.map(t => {
+      const m = TRP[t.key] || { e: "⚔️", n: t.key };
+      return `<div class="atkRow"><span class="an">${m.e} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
+        <input id="atkq_${t.key}" type="number" min="0" max="${t.qty}" value="0" inputmode="numeric"></div>`;
+    }).join("");
+    modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
+      <p style="color:var(--dim);font-size:13px;margin:4px 0 8px">Elige cuántas tropas enviar. La batalla se resuelve al llegar; los supervivientes vuelven con el botín.</p>
+      ${rows}
+      ${travel != null ? `<p style="color:var(--dim);font-size:12px;margin-top:10px">⏱ Viaje de ida: ${tfmt(travel)} · vuelta: otro tanto.</p>` : ""}
+      <div style="text-align:center;margin-top:14px"><button class="btn" id="atkGo">⚔️ Enviar ataque</button></div>`);
+    const go = document.getElementById("atkGo");
+    if(go) go.onclick = () => this.sendAttack(r);
+  },
+  async sendAttack(r){
+    const payload = {};
+    document.querySelectorAll('#modalBox input[id^="atkq_"]').forEach(inp => {
+      const k = inp.id.slice(5);
+      const v = Math.max(0, parseInt(inp.value, 10) || 0);
+      if(v > 0) payload[k] = v;
+    });
+    if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
+    try{
+      const res = await sbRpc("wow_attack", { p_token: this.me.token, p_target: r.id, p_troops: payload });
+      modalClose();
+      toast("⚔️ Ataque enviado. Llegará en " + tfmt(res.travel) + ".");
+      await this.refresh();
+    }catch(e){ toast(shortMsg(e), true); }
   },
 
   /* ----- alianza ----- */

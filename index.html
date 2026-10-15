@@ -140,9 +140,27 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .allyCard .t{font-size:15px; color:var(--txt)}
 .allyCard .m{font-size:12px; color:var(--dim)}
 
+/* ---------- ataques / militar ---------- */
+.milBox{display:flex; flex-direction:column; gap:9px}
+.fleet{background:linear-gradient(#211709,#170f08); border:1px solid var(--line); border-radius:9px; padding:10px 12px; display:flex; align-items:center; gap:10px}
+.fleet.in{border-color:#b53b3b; box-shadow:0 0 14px rgba(181,59,59,.25)}
+.fleet .fi{font-size:22px; line-height:1}
+.fleet .fmain{flex:1; min-width:0}
+.fleet .ft{font-size:14px; color:var(--txt)}
+.fleet .fd{font-size:12px; color:var(--dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.fleet .fcount{color:var(--gold); font-weight:bold; font-variant-numeric:tabular-nums; white-space:nowrap}
+.rep{background:#150f09; border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:13px; margin-bottom:7px}
+.rep.win{border-left:4px solid var(--green)}
+.rep.lose{border-left:4px solid var(--bad)}
+.rep .rl{color:var(--dim); font-size:12px; margin-top:3px}
+.atkRow{display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid #2a1e12}
+.atkRow .an{flex:1; font-size:14px}
+.atkRow .amax{color:var(--dim); font-size:12px}
+.atkRow input{width:86px; padding:7px 9px}
+
 /* ---------- modal ---------- */
 .modalWrap{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; padding:18px; z-index:60}
-.modalBox{background:linear-gradient(#211709,#170f08); border:2px solid var(--gold2); border-radius:12px; padding:20px; width:100%; max-width:400px}
+.modalBox{background:linear-gradient(#211709,#170f08); border:2px solid var(--gold2); border-radius:12px; padding:20px; width:100%; max-width:400px; max-height:88vh; overflow-y:auto}
 .profRow{display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #2a1e12; font-size:14px}
 .profRow .k{color:var(--dim)}
 .profRow .v{color:var(--gold)}
@@ -266,6 +284,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <button data-tab="bld" class="on">🏰 Edificios</button>
     <button data-tab="troop">⚔️ Tropas</button>
     <button data-tab="map">🗺️ Mapa</button>
+    <button data-tab="mil">🗡️ Ataques</button>
     <button data-tab="ally">🤝 Alianza</button>
     <button data-tab="rank">🏆 Ranking</button>
   </nav>
@@ -274,6 +293,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <section id="tabBld" class="tabpane"></section>
     <section id="tabTroop" class="tabpane hidden"></section>
     <section id="tabMap" class="tabpane hidden"></section>
+    <section id="tabMil" class="tabpane hidden"></section>
     <section id="tabAlly" class="tabpane hidden"></section>
     <section id="tabRank" class="tabpane hidden"></section>
   </main>
