@@ -91,6 +91,12 @@ const TRP = {
   jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida" },
   mago:    { e: "🔮", n: "Mago",    d: "Daño mágico" }
 };
+const CTR = {
+  soldado: { up: "🐎 jinete",                dn: "🏹 arquero" },
+  arquero: { up: "🗡️ soldado y 🔮 mago",     dn: "🐎 jinete" },
+  jinete:  { up: "🏹 arquero",               dn: "🗡️ soldado y 🔮 mago" },
+  mago:    { up: "🗡️ soldado y 🐎 jinete",   dn: "🏹 arquero" }
+};
 
 /* posiciones FIJAS de los 20 castillos sobre el mapa (x, y) */
 const SLOT_POS = [
@@ -350,12 +356,16 @@ const Game = {
     html += '<div class="grid">';
     (s.troops || []).forEach(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
+      const c = CTR[t.key] || { up: "—", dn: "—" };
       const noG = s.gold < t.cost.gold, noW = s.wood < t.cost.wood, noO = s.ore < t.cost.ore;
       html += `<div class="card">
         <div class="cardTop">
           <span class="emoji">${m.e}</span>
           <div><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
-          <div class="bDesc">${m.d}</div></div>
+          <div class="bDesc">${m.d}</div>
+          <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
+          <div class="bDesc" style="color:var(--green)">▸ vence a ${c.up}</div>
+          <div class="bDesc" style="color:var(--bad)">▸ teme a ${c.dn}</div></div>
         </div>
         <div class="cardBot">
           <div class="costs">
@@ -531,6 +541,23 @@ const Game = {
       .map(k => `${(TRP[k] || {}).e || "⚔️"}${un(t[k])}`);
     return parts.length ? parts.join(" ") : "—";
   },
+  battleSummary(b){
+    if(!b) return "";
+    const nR = (b.rounds || []).length;
+    const aL = this.troopStr(b.a_loss), dL = this.troopStr(b.d_loss);
+    const aQ = this.troopStr(b.a_left), dQ = this.troopStr(b.d_left);
+    const rout = b.rout ? (b.rout === "both" ? "rompieron filas ambos" : "huyó " + (b.rout === "attacker" ? "el atacante" : "el defensor"))
+      : (nR >= 20 ? "se agotó el tiempo" : "sin desbandada");
+    const rows = (b.rounds || []).map(x =>
+      `<div class="rnd"><span>Ronda ${x.r}</span><span>⚔️ -${un(x.aLoss)} / 🛡️ -${un(x.dLoss)}</span>` +
+      `<span>quedan ${un(x.aLeft)} / ${un(x.dLeft)}</span><span>moral ${x.aMor}/${x.dMor}</span></div>`).join("");
+    return `<div class="btl">
+      <div class="btlTop">🔄 ${nR} ronda${nR === 1 ? "" : "s"} · moral final <b>${un(b.a_morale)}</b> / <b>${un(b.d_morale)}</b> · ${rout}</div>
+      <div class="btlSide">⚔️ Atacante — bajas: ${aL} · quedan: ${aQ}</div>
+      <div class="btlSide">🛡️ Defensor — bajas: ${dL} · quedan: ${dQ}</div>
+      ${rows ? `<details class="btlD"><summary>Ver ronda a ronda</summary>${rows}</details>` : ""}
+    </div>`;
+  },
   async loadMil(){
     if(!this.me) return;
     try{
@@ -608,7 +635,9 @@ const Game = {
           cls = "win";
           title = "🏠 Tus tropas volvieron a casa";
         }
-        if(r.a_loss != null) det += `Bajas: ${un(r.a_loss)} atacante / ${un(r.d_loss)} defensor. `;
+        if(r.battle){
+          det += this.battleSummary(r.battle);
+        }else if(r.a_loss != null) det += `Bajas: ${un(r.a_loss)} atacante / ${un(r.d_loss)} defensor. `;
         const l = r.loot || {};
         if((l.gold||0)+(l.wood||0)+(l.ore||0) > 0) det += `Botín: 💰${un(l.gold)} 🪵${un(l.wood)} ⛏️${un(l.ore)}.`;
         html += `<div class="rep ${cls}"><div>${title}</div><div class="rl">${det}<span style="color:var(--dim)">${hora(r.created)}</span></div></div>`;
@@ -640,6 +669,7 @@ const Game = {
     modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
       <p style="color:var(--dim);font-size:13px;margin:4px 0 8px">Elige cuántas tropas enviar. La batalla se resuelve al llegar; los supervivientes vuelven con el botín.</p>
       ${rows}
+      <p style="color:var(--dim);font-size:11px;margin-top:10px;line-height:1.5">⚖️ Contadores: 🏹 arquero ▸ 🗡️ soldado ▸ 🐎 jinete ▸ 🏹 arquero · 🔮 mago arrasa a soldado y jinete, pero teme al arquero. El ejército con ventaja de tipo (y números) rompe antes la moral del rival.</p>
       ${travel != null ? `<p style="color:var(--dim);font-size:12px;margin-top:10px">⏱ Viaje de ida: ${tfmt(travel)} · vuelta: otro tanto.</p>` : ""}
       <div style="text-align:center;margin-top:14px"><button class="btn" id="atkGo">⚔️ Enviar ataque</button></div>`);
     const go = document.getElementById("atkGo");

@@ -1,8 +1,10 @@
 -- ================================================================
--- REINOS DE AZEROTH - v2 COMBATE PvP
---   - Envias tropas a atacar otro reino (tiempo de viaje por distancia)
---   - Batalla al llegar: potencias, bajas y botin de recursos
---   - Informes para atacante y defensor
+-- REINOS DE AZEROTH - v3 COMBATE POR RONDAS + ESPIONAJE
+--   - Envias tropas a atacar (tiempo de viaje por distancia)
+--   - Batalla POR RONDAS: contadores de tipo (piedra-papel-tijera),
+--     moral, azar controlado, muros y asalto final
+--   - Informe detallado ronda a ronda + botin
+--   - Espias para reconocer recursos / defensa / tropas
 -- ================================================================
 
 -- ---------- limpieza idempotente ----------
@@ -10,10 +12,15 @@ drop function if exists public.wow_attack(text, text, jsonb);
 drop function if exists public.wow_spy(text, text);
 drop function if exists public.wow_fleets(text);
 drop function if exists public._wow_resolve();
+drop function if exists public._wow_sim(jsonb, jsonb, integer, bigint);
+drop function if exists public._wow_atk(text);
+drop function if exists public._wow_hp(text);
+drop function if exists public._wow_counter(text, text);
+drop function if exists public._wow_cargo(text);
+drop function if exists public._wow_noise(bigint, bigint);
+drop function if exists public._wow_travel(integer, integer);
 drop function if exists public._wow_astat(text);
 drop function if exists public._wow_dstat(text);
-drop function if exists public._wow_cargo(text);
-drop function if exists public._wow_travel(integer, integer);
 
 -- ---------- tablas ----------
 create table if not exists public.wow_fleets(
@@ -38,16 +45,32 @@ create table if not exists public.wow_reports(
 alter table public.wow_fleets  enable row level security;
 alter table public.wow_reports enable row level security;
 
--- ---------- estadisticas ----------
-create or replace function public._wow_astat(p_key text)
+-- ---------- estadisticas de unidad ----------
+-- ataque (dano por ronda) y aguante (hp)
+create or replace function public._wow_atk(p_key text)
 returns integer language sql immutable as $$
-  select case p_key when 'soldado' then 10 when 'arquero' then 16
-                    when 'jinete' then 26 when 'mago' then 42 else 0 end
+  select case p_key when 'soldado' then 10 when 'arquero' then 15
+                    when 'jinete' then 20 when 'mago' then 26 else 0 end
 $$;
-create or replace function public._wow_dstat(p_key text)
+create or replace function public._wow_hp(p_key text)
 returns integer language sql immutable as $$
-  select case p_key when 'soldado' then 12 when 'arquero' then 6
-                    when 'jinete' then 14 when 'mago' then 18 else 0 end
+  select case p_key when 'soldado' then 12 when 'arquero' then 8
+                    when 'jinete' then 16 when 'mago' then 7 else 1 end
+$$;
+-- multiplicador de dano: atacante -> defensor (piedra/papel/tijera)
+--   ciclo: arquero > soldado > jinete > arquero
+--   mago barre cuerpo a cuerpo (soldado/jinete), pero teme a los arqueros
+--   2.0 = gana la ventaja, 0.5 = pierde la ventaja, 1.0 = espejo
+--   (los valores fuertes/débiles deben dominar a atk/hp para que el
+--    ciclo de contadores decida la batalla de verdad)
+create or replace function public._wow_counter(a text, d text)
+returns numeric language sql immutable as $$
+  select case
+    when a='soldado' then case d when 'jinete' then 2.0 when 'soldado' then 1.0 else 0.5 end
+    when a='arquero' then case d when 'soldado' then 2.0 when 'mago' then 2.0 when 'arquero' then 1.0 else 0.5 end
+    when a='jinete'  then case d when 'arquero' then 2.0 when 'jinete' then 1.0 else 0.5 end
+    when a='mago'    then case d when 'soldado' then 2.0 when 'jinete' then 2.0 when 'mago' then 1.0 else 0.5 end
+    else 1.0 end
 $$;
 create or replace function public._wow_cargo(p_key text)
 returns integer language sql immutable as $$
@@ -58,28 +81,161 @@ create or replace function public._wow_travel(a integer, b integer)
 returns integer language sql immutable as $$
   select greatest(20, 15 + 3 * abs(coalesce(a,0) - coalesce(b,0)))
 $$;
-revoke all on function public._wow_astat(text) from public, anon, authenticated;
-revoke all on function public._wow_dstat(text) from public, anon, authenticated;
+-- ruido determinista en [-0.5,0.5)
+create or replace function public._wow_noise(p_seed bigint, p_salt bigint)
+returns numeric language sql immutable as $$
+  select ((abs(hashtextextended(coalesce(p_seed,0)::text||':'||coalesce(p_salt,0)::text, 0)) % 1000)::numeric / 1000.0) - 0.5
+$$;
+revoke all on function public._wow_atk(text) from public, anon, authenticated;
+revoke all on function public._wow_hp(text) from public, anon, authenticated;
+revoke all on function public._wow_counter(text, text) from public, anon, authenticated;
 revoke all on function public._wow_cargo(text) from public, anon, authenticated;
 revoke all on function public._wow_travel(integer, integer) from public, anon, authenticated;
+revoke all on function public._wow_noise(bigint, bigint) from public, anon, authenticated;
 
--- ---------- resolucion de flotas (global) ----------
+-- ---------- SIMULADOR DE BATALLA (por rondas) ----------
+create or replace function public._wow_sim(p_att jsonb, p_def jsonb, p_wall integer, p_seed bigint)
+returns jsonb language plpgsql immutable as $$
+declare
+  keys text[] := array['soldado','arquero','jinete','mago'];
+  hpA  numeric[] := array[12,8,16,7];
+  atkA numeric[] := array[10,15,20,26];
+  aq numeric[]; dq numeric[]; aPre numeric[]; dPre numeric[];
+  aInit numeric[]; dInit numeric[]; aCas numeric[]; dCas numeric[];
+  aHP numeric[]; dHP numeric[];
+  i integer; j integer; r integer; maxR integer := 20;
+  aHPtot numeric; dHPtot numeric; aTot0 numeric; dTot0 numeric;
+  beforeA numeric; beforeD numeric; afterA numeric; afterD numeric;
+  lossA numeric; lossD numeric;
+  morA numeric := 100; morD numeric := 100;
+  rounds jsonb := '[]'::jsonb;
+  wallF numeric; dmgn numeric;
+  dmgK numeric := 0.16;
+  noiseA numeric; noiseD numeric;
+  routA boolean := false; routD boolean := false;
+  winner text; rout text := null;
+  astart jsonb; dstart jsonb; aleft jsonb; dleft jsonb; aloss jsonb; dloss jsonb;
+begin
+  wallF := 1 - least(0.5, greatest(coalesce(p_wall,0),0) * 0.07);
+  aTot0 := 0; dTot0 := 0;
+  for i in 1..4 loop
+    aq[i] := greatest(coalesce((p_att->>keys[i])::numeric,0),0);
+    dq[i] := greatest(coalesce((p_def->>keys[i])::numeric,0),0);
+    aInit[i] := aq[i]; dInit[i] := dq[i];
+    aCas[i] := 0; dCas[i] := 0;
+    aTot0 := aTot0 + aInit[i]; dTot0 := dTot0 + dInit[i];
+  end loop;
+
+  for r in 1..maxR loop
+    for i in 1..4 loop aPre[i] := aq[i]; dPre[i] := dq[i]; end loop;
+    aHPtot := 0; dHPtot := 0;
+    for i in 1..4 loop
+      aHP[i] := aPre[i]*hpA[i]; dHP[i] := dPre[i]*hpA[i];
+      aHPtot := aHPtot + aHP[i]; dHPtot := dHPtot + dHP[i];
+    end loop;
+    exit when aHPtot <= 0 or dHPtot <= 0;
+
+    beforeA := aPre[1]+aPre[2]+aPre[3]+aPre[4];
+    beforeD := dPre[1]+dPre[2]+dPre[3]+dPre[4];
+    noiseA := _wow_noise(p_seed, r*2);
+    noiseD := _wow_noise(p_seed, r*2+1);
+
+    -- bajas del atacante (dano de cada tipo defensor repartido por hp)
+    for i in 1..4 loop
+      dmgn := 0;
+      for j in 1..4 loop
+        dmgn := dmgn + (dPre[j]*atkA[j]) * _wow_counter(keys[j], keys[i]) * (aHP[i]/greatest(aHPtot,1));
+      end loop;
+      dmgn := dmgn * dmgK * (1 + noiseD*0.2);
+      if dmgn > 0 then aCas[i] := aCas[i] + dmgn/hpA[i]; end if;
+      aq[i] := greatest(aInit[i] - floor(aCas[i]), 0);
+    end loop;
+    -- bajas del defensor (reducidas por muralla)
+    for j in 1..4 loop
+      dmgn := 0;
+      for i in 1..4 loop
+        dmgn := dmgn + (aPre[i]*atkA[i]) * _wow_counter(keys[i], keys[j]) * (dHP[j]/greatest(dHPtot,1));
+      end loop;
+      dmgn := dmgn * dmgK * wallF * (1 + noiseA*0.2);
+      if dmgn > 0 then dCas[j] := dCas[j] + dmgn/hpA[j]; end if;
+      dq[j] := greatest(dInit[j] - floor(dCas[j]), 0);
+    end loop;
+
+    afterA := aq[1]+aq[2]+aq[3]+aq[4];
+    afterD := dq[1]+dq[2]+dq[3]+dq[4];
+    lossA := beforeA - afterA; lossD := beforeD - afterD;
+
+    -- moral = fraccion de ejercito que sigue en pie, mas un impulso por el
+    -- ultimo choque (una mala ronda desmoraliza, una buena envalentona)
+    morA := 100 * afterA / greatest(aTot0,1) + (lossD/greatest(beforeD,1) - lossA/greatest(beforeA,1))*20;
+    morD := 100 * afterD / greatest(dTot0,1) + (lossA/greatest(beforeA,1) - lossD/greatest(beforeD,1))*20;
+    morA := greatest(0, least(100, morA));
+    morD := greatest(0, least(100, morD));
+
+    rounds := rounds || jsonb_build_object('r',r,'aLoss',round(lossA),'dLoss',round(lossD),
+                 'aLeft',round(afterA),'dLeft',round(afterD),'aMor',round(morA),'dMor',round(morD));
+
+    exit when afterA <= 0 or afterD <= 0;
+    if morA <= 15 then routA := true; end if;
+    if morD <= 15 then routD := true; end if;
+    exit when routA or routD;
+  end loop;
+
+  afterA := aq[1]+aq[2]+aq[3]+aq[4];
+  afterD := dq[1]+dq[2]+dq[3]+dq[4];
+
+  -- quien rompe filas pierde. Si ambos rompen gana quien conserva mas moral;
+  -- si se agota el tiempo gana quien conserva mayor proporcion de ejercito.
+  -- Los empates los gana el defensor (ventaja de defender).
+  if routD and not routA then winner := 'attacker';
+  elsif routA and not routD then winner := 'defender';
+  elsif routA and routD then
+    if morA > morD then winner := 'attacker'; else winner := 'defender'; end if;
+  elsif afterD <= 0 and afterA > 0 then winner := 'attacker';
+  elsif afterA <= 0 and afterD > 0 then winner := 'defender';
+  elsif (afterA/greatest(aTot0,1)) > (afterD/greatest(dTot0,1)) then winner := 'attacker';
+  else winner := 'defender'; end if;
+
+  rout := null;
+  if routA and routD then rout := 'both';
+  elsif routA then rout := 'attacker';
+  elsif routD then rout := 'defender';
+  end if;
+
+  -- desbandada: la parte que rompe filas pierde la mitad de sus supervivientes
+  if winner = 'attacker' and routD then
+    for j in 1..4 loop dCas[j] := dCas[j] + dq[j]*0.5; dq[j] := greatest(dInit[j]-floor(dCas[j]),0); end loop;
+  elsif winner = 'defender' and routA then
+    for i in 1..4 loop aCas[i] := aCas[i] + aq[i]*0.5; aq[i] := greatest(aInit[i]-floor(aCas[i]),0); end loop;
+  end if;
+
+  astart := jsonb_build_object('soldado',floor(aInit[1]),'arquero',floor(aInit[2]),'jinete',floor(aInit[3]),'mago',floor(aInit[4]));
+  dstart := jsonb_build_object('soldado',floor(dInit[1]),'arquero',floor(dInit[2]),'jinete',floor(dInit[3]),'mago',floor(dInit[4]));
+  aleft  := jsonb_build_object('soldado',floor(aq[1]),'arquero',floor(aq[2]),'jinete',floor(aq[3]),'mago',floor(aq[4]));
+  dleft  := jsonb_build_object('soldado',floor(dq[1]),'arquero',floor(dq[2]),'jinete',floor(dq[3]),'mago',floor(dq[4]));
+  aloss  := jsonb_build_object('soldado',floor(aInit[1])-floor(aq[1]),'arquero',floor(aInit[2])-floor(aq[2]),
+                               'jinete',floor(aInit[3])-floor(aq[3]),'mago',floor(aInit[4])-floor(aq[4]));
+  dloss  := jsonb_build_object('soldado',floor(dInit[1])-floor(dq[1]),'arquero',floor(dInit[2])-floor(dq[2]),
+                               'jinete',floor(dInit[3])-floor(dq[3]),'mago',floor(dInit[4])-floor(dq[4]));
+
+  return jsonb_build_object('winner',winner,'rout',rout,'rounds',rounds,
+    'a_start',astart,'d_start',dstart,'a_left',aleft,'d_left',dleft,'a_loss',aloss,'d_loss',dloss,
+    'a_morale',round(morA),'d_morale',round(morD));
+end $$;
+revoke all on function public._wow_sim(jsonb, jsonb, integer, bigint) from public, anon, authenticated;
+
+-- ---------- resolucion global de flotas ----------
 create or replace function public._wow_resolve()
 returns void language plpgsql security definer set search_path to 'public' as $$
 declare
   ms bigint := (extract(epoch from now())*1000)::bigint;
-  f wow_fleets;
-  z record;
-  zt wow_users;
-  a_power numeric; d_power numeric; d_tt numeric; d_wall numeric; total numeric;
-  a_frac numeric; d_frac numeric; att_wins boolean;
-  surv jsonb; vloot jsonb; cargo numeric;
-  defg numeric; defw numeric; defo numeric; rem numeric; lg numeric; lw numeric; lo numeric;
-  atk_total integer; surv_total integer; dloss integer; dp integer; ap integer;
-  who text; whoatt text; ret integer;
-  detect numeric; succ boolean; bjson jsonb; tjson jsonb; tpoints integer;
+  f wow_fleets; z record; zt wow_users;
+  sim jsonb; djson jsonb; surv jsonb; vloot jsonb; cargo numeric;
+  lg numeric; lw numeric; lo numeric; rem numeric;
+  defg numeric; defw numeric; defo numeric;
+  att_wins boolean; wall integer; ret integer;
+  who text; whoatt text;
 begin
-  -- ---- llegadas a destino ----
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
 
     -- ===== mision de espionaje =====
@@ -87,110 +243,85 @@ begin
       select * into zt from wow_users where id = f.target;
       if zt.id is null then
         insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who','(reino destruido)',
-                  'success', false, 'created', ms), ms);
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who','(reino destruido)','success',false,'created',ms), ms);
         delete from wow_fleets where id = f.id;
         continue;
       end if;
       zt := _wow_tick(f.target);
-      detect := least(0.6, (select coalesce(max(level),0) from wow_buildings
-                             where owner_id = f.target and bkey = 'muralla') * 0.08);
-      succ := random() >= detect;
-      if succ then
-        bjson := coalesce((select jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0)) order by v.ord)
-          from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
-          left join wow_buildings b on b.owner_id = f.target and b.bkey = v.k), '[]');
-        tjson := coalesce((select jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0)) order by v.ord)
-          from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4)) v(t,ord)
-          left join wow_troops t on t.owner_id = f.target and t.tkey = v.t), '[]');
-        tpoints := (select coalesce(sum(level),0) from wow_buildings where owner_id = f.target) * 100
-                 + (select coalesce(sum(qty),0) from wow_troops where owner_id = f.target);
+      if random() >= least(0.6, (select coalesce(max(level),0) from wow_buildings where owner_id=f.target and bkey='muralla') * 0.08) then
         insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who', zt.name, 'success', true,
-                  'gold', zt.gold, 'wood', zt.wood, 'ore', zt.ore, 'capacity', _wow_cap(f.target),
-                  'buildings', bjson, 'troops', tjson, 'points', tpoints, 'created', ms), ms);
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who',zt.name,'success',true,
+            'gold',zt.gold,'wood',zt.wood,'ore',zt.ore,'capacity',_wow_cap(f.target),
+            'buildings', coalesce((select jsonb_agg(jsonb_build_object('key',v.k,'level',coalesce(b.level,0)) order by v.ord)
+              from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
+              left join wow_buildings b on b.owner_id=f.target and b.bkey=v.k),'[]'),
+            'troops', coalesce((select jsonb_agg(jsonb_build_object('key',v.t,'qty',coalesce(t.qty,0)) order by v.ord)
+              from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4)) v(t,ord)
+              left join wow_troops t on t.owner_id=f.target and t.tkey=v.t),'[]'),
+            'points', _wow_points(f.target),'created',ms), ms);
       else
         insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who', zt.name, 'success', false, 'created', ms), ms);
+          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who',zt.name,'success',false,'created',ms), ms);
         insert into wow_reports(owner, kind, data, created)
-          values (f.target, 'spy_in', jsonb_build_object('dir','spy_in',
-                  'who', (select name from wow_users where id = f.attacker), 'created', ms), ms);
+          values (f.target, 'spy_in', jsonb_build_object('dir','spy_in','who',(select name from wow_users where id=f.attacker),'created',ms), ms);
       end if;
       delete from wow_fleets where id = f.id;
       continue;
     end if;
 
-    -- ===== batalla normal =====
+    -- ===== batalla por rondas =====
     perform _wow_tick(f.attacker);
-    perform _wow_tick(f.target);
-
-    select coalesce(sum((x.v)::int * _wow_astat(x.k)),0) into a_power
-      from jsonb_each_text(f.troops) x(k,v);
-    select coalesce(sum(qty * _wow_dstat(tkey)),0) into d_tt
-      from wow_troops where owner_id = f.target;
-    select coalesce(max(level),0) into d_wall
-      from wow_buildings where owner_id = f.target and bkey = 'muralla';
-    d_power := d_tt + d_wall * 120;
-    total := greatest(a_power + d_power, 1);
-    a_frac := d_power / total;
-    d_frac := a_power / total;
-    att_wins := a_power > d_power;
-
-    -- supervivientes del atacante
-    surv := '{}'::jsonb;
-    for z in select k, v from jsonb_each_text(f.troops) x(k,v) loop
-      ap := greatest(floor((z.v)::int * (1 - a_frac)), 0);
-      if ap > 0 then surv := surv || jsonb_build_object(z.k, ap); end if;
-    end loop;
-
-    -- bajas del defensor
-    dloss := 0;
+    zt := _wow_tick(f.target);
+    djson := '{}'::jsonb;
     for z in select tkey, qty from wow_troops where owner_id = f.target and qty > 0 loop
-      dp := floor(z.qty * d_frac);
-      if dp > 0 then
-        update wow_troops set qty = greatest(qty - dp, 0) where owner_id = f.target and tkey = z.tkey;
-        dloss := dloss + dp;
-      end if;
+      djson := djson || jsonb_build_object(z.tkey, z.qty);
+    end loop;
+    wall := coalesce((select max(level) from wow_buildings where owner_id = f.target and bkey='muralla'), 0);
+    sim := _wow_sim(f.troops, djson, wall, f.id*7919 + (ms/1000));
+    att_wins := (sim->>'winner') = 'attacker';
+
+    -- supervivientes del atacante (sin ceros)
+    surv := '{}'::jsonb;
+    for z in select key, value from jsonb_each_text(sim->'a_left') loop
+      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
     end loop;
 
-    -- totales
-    select coalesce(sum((x.v)::int),0) into atk_total from jsonb_each_text(f.troops) x(k,v);
-    select coalesce(sum((x.v)::int),0) into surv_total from jsonb_each_text(surv) x(k,v);
+    -- defensa restante
+    for z in select key, value from jsonb_each_text(sim->'d_left') loop
+      update wow_troops set qty = (z.value)::int where owner_id = f.target and tkey = z.key;
+    end loop;
+    delete from wow_troops where owner_id = f.target and qty <= 0;
 
-    -- botin
+    -- botin si el atacante gana
     vloot := '{}'::jsonb;
     if att_wins then
       select coalesce(sum((x.v)::int * _wow_cargo(x.k)),0) into cargo from jsonb_each_text(surv) x(k,v);
       select gold, wood, ore into defg, defw, defo from wow_users where id = f.target;
-      lg := least(floor(coalesce(defg,0) * 0.5), cargo); rem := cargo - lg;
-      lw := least(floor(coalesce(defw,0) * 0.5), rem); rem := rem - lw;
-      lo := least(floor(coalesce(defo,0) * 0.5), rem);
+      lg := least(floor(coalesce(defg,0)*0.5), cargo); rem := cargo - lg;
+      lw := least(floor(coalesce(defw,0)*0.5), rem); rem := rem - lw;
+      lo := least(floor(coalesce(defo,0)*0.5), rem);
       if lg > 0 or lw > 0 or lo > 0 then
         update wow_users set gold = gold - lg, wood = wood - lw, ore = ore - lo where id = f.target;
-        vloot := jsonb_build_object('gold', lg, 'wood', lw, 'ore', lo);
+        vloot := jsonb_build_object('gold',lg,'wood',lw,'ore',lo);
       end if;
     end if;
 
-    who    := (select name from wow_users where id = f.target);
+    who := zt.name;
     whoatt := (select name from wow_users where id = f.attacker);
 
     insert into wow_reports(owner, kind, data, created) values
-      (f.attacker, 'out', jsonb_build_object('dir','out','who',who,'win',att_wins,
-         'a_loss', atk_total - surv_total, 'd_loss', dloss, 'loot', vloot, 'created', ms), ms),
-      (f.target, 'in', jsonb_build_object('dir','in','who',whoatt,'win',att_wins,
-         'a_loss', atk_total - surv_total, 'd_loss', dloss, 'loot', vloot, 'created', ms), ms);
+      (f.attacker,'out', jsonb_build_object('dir','out','who',who,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms),
+      (f.target,'in',   jsonb_build_object('dir','in','who',whoatt,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms);
 
-    ret := _wow_travel((select pos from wow_users where id = f.target),
-                       (select pos from wow_users where id = f.attacker));
-    update wow_fleets set state = 'returning', troops = surv, loot = vloot,
-           arrive_ms = ms + ret * 1000 where id = f.id;
+    ret := _wow_travel((select pos from wow_users where id=f.target),(select pos from wow_users where id=f.attacker));
+    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000 where id = f.id;
   end loop;
 
-  -- ---- regreso a casa -> devolver tropas y botin ----
-  for f in select * from wow_fleets where state = 'returning' and arrive_ms <= ms for update loop
+  -- ---- regreso a casa ----
+  for f in select * from wow_fleets where state='returning' and arrive_ms <= ms for update loop
     perform _wow_tick(f.attacker);
-    for z in select k, v from jsonb_each_text(f.troops) x(k,v) loop
-      insert into wow_troops(owner_id, tkey, qty) values (f.attacker, z.k, (z.v)::int)
+    for z in select key, value from jsonb_each_text(f.troops) loop
+      insert into wow_troops(owner_id, tkey, qty) values (f.attacker, z.key, (z.value)::int)
         on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
     end loop;
     update wow_users set
@@ -199,8 +330,7 @@ begin
         ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.attacker))
       where id = f.attacker;
     insert into wow_reports(owner, kind, data, created)
-      values (f.attacker, 'return', jsonb_build_object('dir','return','who','','win',true,
-              'loot', f.loot, 'created', ms), ms);
+      values (f.attacker, 'return', jsonb_build_object('dir','return','who','','win',true,'loot',f.loot,'created',ms), ms);
     delete from wow_fleets where id = f.id;
   end loop;
 end $$;
@@ -209,42 +339,37 @@ revoke all on function public._wow_resolve() from public, anon, authenticated;
 -- ---------- enviar ataque ----------
 create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb; k text;
+declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   perform _wow_resolve();
   u := _wow_tick(u.id);
-  if coalesce(p_target,'') = '' then raise exception 'Elige un objetivo.'; end if;
   if p_target = u.id then raise exception 'No puedes atacarte a ti mismo.'; end if;
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
   if t.alliance is not null and t.alliance = u.alliance then
     raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;
   if p_troops is null or p_troops = '{}'::jsonb then raise exception 'Elige las tropas a enviar.'; end if;
-
   sent := '{}'::jsonb;
   for e in select key as kk, value as vv from jsonb_each_text(p_troops) loop
     if e.kk not in ('soldado','arquero','jinete','mago') then raise exception 'Tropa no válida.'; end if;
     begin v := (e.vv)::int; exception when others then v := 0; end;
     if v > 0 then
-      if (select coalesce(qty,0) from wow_troops where owner_id = u.id and tkey = e.kk) < v then
+      if (select coalesce(qty,0) from wow_troops where owner_id=u.id and tkey=e.kk) < v then
         raise exception 'No tienes suficientes tropas de ese tipo.'; end if;
       sent := sent || jsonb_build_object(e.kk, v);
     end if;
   end loop;
   if sent = '{}'::jsonb then raise exception 'Elige al menos una tropa.'; end if;
-
   for e in select key as kk, value as vv from jsonb_each_text(sent) loop
-    update wow_troops set qty = qty - (e.vv)::int where owner_id = u.id and tkey = e.kk;
+    update wow_troops set qty = qty - (e.vv)::int where owner_id=u.id and tkey=e.kk;
   end loop;
-
   travel := _wow_travel(u.pos, t.pos);
   ms := (extract(epoch from now())*1000)::bigint;
-  insert into wow_fleets(attacker, target, troops, loot, state, depart_ms, arrive_ms)
-    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', ms, ms + travel*1000);
-  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000,
-    'target', t.name);
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms)
+    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', 'attack', ms, ms + travel*1000);
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
 end $$;
 grant execute on function public.wow_attack(text, text, jsonb) to anon, authenticated;
 
@@ -257,7 +382,6 @@ begin
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   perform _wow_resolve();
   u := _wow_tick(u.id);
-  if coalesce(p_target,'') = '' then raise exception 'Elige un objetivo.'; end if;
   if p_target = u.id then raise exception 'No puedes espiar tu propio reino.'; end if;
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
@@ -290,8 +414,7 @@ begin
         'who', (select name from wow_users where id = case when f.attacker = u.id then f.target else f.attacker end),
         'state', f.state, 'troops', f.troops, 'loot', f.loot, 'arrive', f.arrive_ms
       ) order by f.arrive_ms)
-      from wow_fleets f
-      where f.attacker = u.id or (f.target = u.id and f.kind <> 'spy')
+      from wow_fleets f where f.attacker = u.id or (f.target = u.id and f.kind <> 'spy')
     ), '[]'),
     'reports', coalesce((
       select jsonb_agg(x.data order by x.id desc)
@@ -302,7 +425,7 @@ begin
 end $$;
 grant execute on function public.wow_fleets(text) to anon, authenticated;
 
--- ---------- enganchar resolucion a state / map ----------
+-- ---------- enganchar resolucion a state / map (con stats de tropa) ----------
 create or replace function public.wow_state(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare u wow_users; blds jsonb; trs jsonb; que jsonb; cap numeric; rate jsonb; ms bigint; pts integer;
@@ -319,7 +442,8 @@ begin
     from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
     left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
   select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
-             'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t)) order by v.ord), '[]') into trs
+             'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),
+             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t)) order by v.ord), '[]') into trs
     from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4)) v(t,ord)
     left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
   select jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
