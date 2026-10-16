@@ -240,6 +240,7 @@ const Auth = {
         $("#tabMil").classList.toggle("hidden", Game.tab !== "mil");
         $("#tabAlly").classList.toggle("hidden", Game.tab !== "ally");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
+        $("#tabMarket").classList.toggle("hidden", Game.tab !== "market");
         $("#tabAdmin").classList.toggle("hidden", Game.tab !== "admin");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
@@ -247,6 +248,7 @@ const Auth = {
         if(Game.tab === "map") Game.loadMap(); else { Game.stopMarchLoop(); Game.stopMarchPoll(); }
         if(Game.tab === "mil") Game.loadMil();
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
+        if(Game.tab === "market") Game.loadMarket && Game.loadMarket();
         if(Game.tab === "admin") Game.loadAdmin();
       };
     });
@@ -356,6 +358,7 @@ const Game = {
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
       if(this.tab === "map") this.loadMap();
       if(this.tab === "mil") this.loadMil();
+      if(this.tab === "market" && this.loadMarket) this.loadMarket();
     }catch(e){ toast(shortMsg(e), true); }
   },
   loop(){
@@ -1066,3 +1069,62 @@ window.addEventListener("error", ev => {
   try{ toast("Error: " + (ev.message || "desconocido"), true); }catch(_){}
 });
 document.addEventListener("DOMContentLoaded", () => Auth.init());
+
+/* ----- mercado ----- */
+Game.loadMarket = async function(){
+  const el = $("#tabMarket"); if(!el) return;
+  el.innerHTML = '<p class="empty">Cargando mercado…</p>';
+  el.innerHTML = `<div class="secTitle" style="margin-top:0">🛒 Mercado · Compra/Venta con CUP</div>
+    <div class="sec">Tu CUP: <b id="mCup">${un(this.st ? this.st.cup : 0)}</b></div>
+    <div class="secTitle">Recurso → CUP (vender)</div>
+    <div class="bldGrid">
+      <div class="bldCard"><div class="bldTop"><span class="bldE">💰</span><span class="bldN">Oro</span></div>
+        <div class="bldBody"><input id="mv_gold" type="number" min="0" value="0"></div>
+        <button class="btn" id="mvb_gold">Vender (10 oro → 1 CUP)</button></div>
+      <div class="bldCard"><div class="bldTop"><span class="bldE">🪵</span><span class="bldN">Madera</span></div>
+        <div class="bldBody"><input id="mv_wood" type="number" min="0" value="0"></div>
+        <button class="btn" id="mvb_wood">Vender (20 madera → 1 CUP)</button></div>
+      <div class="bldCard"><div class="bldTop"><span class="bldE">⛏️</span><span class="bldN">Mineral</span></div>
+        <div class="bldBody"><input id="mv_ore" type="number" min="0" value="0"></div>
+        <button class="btn" id="mvb_ore">Vender (30 mineral → 1 CUP)</button></div>
+    </div>
+    <div class="secTitle">CUP → Recurso (comprar)</div>
+    <div class="bldGrid">
+      <div class="bldCard"><div class="bldTop"><span class="bldE">💰</span><span class="bldN">Oro</span></div>
+        <div class="bldBody"><input id="mb_gold" type="number" min="0" value="0"></div>
+        <button class="btn" id="mbb_gold">Comprar (1 CUP → 10 oro)</button></div>
+      <div class="bldCard"><div class="bldTop"><span class="bldE">🪵</span><span class="bldN">Madera</span></div>
+        <div class="bldBody"><input id="mb_wood" type="number" min="0" value="0"></div>
+        <button class="btn" id="mbb_wood">Comprar (1 CUP → 0.05 madera)</button></div>
+      <div class="bldCard"><div class="bldTop"><span class="bldE">⛏️</span><span class="bldN">Mineral</span></div>
+        <div class="bldBody"><input id="mb_ore" type="number" min="0" value="0"></div>
+        <button class="btn" id="mbb_ore">Comprar (1 CUP → ~0.033 mineral)</button></div>
+    </div>
+    <div class="secTitle">Tropas</div>
+    <div class="bldGrid">
+      ${["soldado","arquero","jinete","mago","paladín","dragón"].map(k=>{
+        const tr=TRP[k]||{n:k,e:"⚔️"}; const val={"soldado":50,"arquero":60,"jinete":100,"mago":150,"paladín":200,"dragón":300}[k];
+        return `<div class="bldCard"><div class="bldTop"><span class="bldE">${tr.e||"⚔️"}</span><span class="bldN">${tr.n}</span></div>
+          <div class="bldBody"><div style="color:var(--dim);font-size:12px">Valor ${val} CUP c/u</div>
+            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+              <input id="mts_${k}" type="number" min="0" value="0" style="flex:1">
+              <button class="btn sm" id="mtsb_${k}">Vender</button>
+              <input id="mtb_${k}" type="number" min="0" value="0" style="flex:1">
+              <button class="btn sm" id="mtbb_${k}">Comprar</button>
+            </div></div></div>`;
+      }).join("")}
+    </div>`;
+  const st=this.st; if(st && $("#mCup")) $("#mCup").textContent=un(st.cup||0);
+  document.querySelectorAll("#tabMarket button[id^=mvb_]").forEach(b=>{
+    b.onclick=async()=>{ const rk=b.id.slice(4); const v=Number($("#mv_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_sell_resource",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Vendido. +CUP"); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
+  });
+  document.querySelectorAll("#tabMarket button[id^=mbb_]").forEach(b=>{
+    b.onclick=async()=>{ const rk=b.id.slice(4); const v=Number($("#mb_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_buy_resource",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Comprado."); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
+  });
+  document.querySelectorAll("#tabMarket button[id^=mtsb_]").forEach(b=>{
+    b.onclick=async()=>{ const rk=b.id.slice(5); const v=Number($("#mts_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_sell_troop",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Tropas vendidas. +CUP"); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
+  });
+  document.querySelectorAll("#tabMarket button[id^=mtbb_]").forEach(b=>{
+    b.onclick=async()=>{ const rk=b.id.slice(5); const v=Number($("#mtb_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_buy_troop",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Tropas compradas."); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
+  });
+};
