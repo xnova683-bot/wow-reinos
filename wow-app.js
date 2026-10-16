@@ -78,7 +78,7 @@ function showScreen(id){
 
 /* ---------------- datos del juego ---------------- */
 const BLD = {
-  mina:       { e: "⛏️", n: "Mina de Mineral", d: "Extrae mineral del subsuelo",      p: "+{v} mineral/h" },
+  mina:       { e: "⛏️", n: "Mina de Mineral", d: "Extrae mineral del subsuelo",      p: "+{v} mineral/h", img: "img/mina.jpg" },
   aserradero: { e: "🪵", n: "Aserradero",      d: "Corta madera para tus obras",      p: "+{v} madera/h", img: "img/aserradero.jpg" },
   tesoreria:  { e: "🪙", n: "Mina de Oro",     d: "Extrae oro de las vetas del subsuelo", p: "+{v} oro/h" },
   almacen:    { e: "📦", n: "Almacén",         d: "Guarda más recursos",              p: "Capacidad: {v}" },
