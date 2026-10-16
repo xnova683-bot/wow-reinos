@@ -365,17 +365,13 @@ const Game = {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
       const c = CTR[t.key] || { up: "—", dn: "—" };
       const noG = s.gold < t.cost.gold, noW = s.wood < t.cost.wood, noO = s.ore < t.cost.ore;
-      const left = m.img ? "" : `<span class="emoji">${m.e}</span>`;
-      const pic = m.img ? `<img class="troopImg" src="${m.img}" alt="${m.n}">` : "";
-      html += `<div class="card">
-        <div class="cardTop">
-          ${left}
+      const head = `<div class="cardTop">
+          ${m.img ? "" : `<span class="emoji">${m.e}</span>`}
           <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
           <div class="bDesc">${m.d}</div>
           <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
           <div class="bDesc" style="color:var(--green)">▸ vence a ${c.up}</div>
           <div class="bDesc" style="color:var(--bad)">▸ teme a ${c.dn}</div></div>
-          ${pic}
         </div>
         <div class="cardBot">
           <div class="costs">
@@ -388,8 +384,10 @@ const Game = {
         <div class="troopRow">
           <input id="qty_${t.key}" type="number" min="1" max="100000" value="10" ${(!unlocked || busy) ? "disabled" : ""}>
           <button class="btn sm" data-tr="${t.key}" ${(!unlocked || busy) ? "disabled" : ""}>⚔️ Entrenar</button>
-        </div>
-      </div>`;
+        </div>`;
+      html += m.img
+        ? `<div class="card hasPic"><div class="picBody">${head}</div><div class="picSide"><img class="troopImg" src="${m.img}" alt="${m.n}"></div></div>`
+        : `<div class="card">${head}</div>`;
     });
     html += "</div>";
     $("#tabTroop").innerHTML = html;
