@@ -94,7 +94,7 @@ const TRP = {
   jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg" },
   mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg" },
   paladin: { n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg" },
-  dragon:  { e: "🐉", n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos" }
+  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg" }
 };
 const CTR = {
   soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
