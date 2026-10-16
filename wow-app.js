@@ -340,6 +340,7 @@ const Game = {
     const ab = $("#gAlly"); if(ab){ ab.textContent = ""; ab.style.display = "none"; }
     this.setAdminTab(!!me.is_admin);
     await this.refresh();
+    if (this.me && this.me.id === "admin") this.setAdminTab(true);
     this.loop();
   },
   stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this.stopMarchLoop(); this.stopMarchPoll(); },
@@ -347,7 +348,7 @@ const Game = {
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
       this.stNow = Date.now();
-      this.setAdminTab(!!this.st.is_admin);
+      this.setAdminTab(!!this.st.is_admin || (this.me && this.me.id === "admin"));
       $("#gPts").textContent = un(this.st.points);
       const ab = $("#gAlly");
       if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
