@@ -524,8 +524,7 @@ const Game = {
         </div>
         ${pins}
         <div class="armyLayer" id="armyLayer"></div>
-      </div></div>
-      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · ⚔️ ejércitos en camino · 🕵️ tus espías · toca un castillo para ver su ficha</div>`;
+      </div></div>`;
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
