@@ -130,30 +130,52 @@ const DECOS = (() => {
   return out;
 })();
 
-/* red de caminos (MST) que dibuja el mapa: mover ejercitos por los caminos */
+/* mapa: canvas 1200x2400 con DOS continentes (arriba/abajo) unidos por un puente.
+   Red de caminos = MST de cada continente + puente entre las dos fortalezas.
+   Nodos: 0=trono alto, 1..20=castillos alto, 21=trono bajo, 22..41=castillos bajo */
+const MAPW = 1200, MAPH = 2400, MAPKX = 0.72, MAPKY = 0.60;
+const MAP_CONT = [[600, 600], [600, 1800]];
+const MAP_NODE = 42;
+function mapNodeXY(idx){
+  if(idx === 0) return MAP_CONT[0].slice();
+  if(idx === 21) return MAP_CONT[1].slice();
+  if(idx >= 1 && idx <= 20){ const s = SLOT_POS[idx - 1]; return [MAP_CONT[0][0] + s[0]*MAPKX, MAP_CONT[0][1] + s[1]*MAPKY]; }
+  const s = SLOT_POS[idx - 22]; return [MAP_CONT[1][0] + s[0]*MAPKX, MAP_CONT[1][1] + s[1]*MAPKY];
+}
 const MAP_ROADS = (() => {
-  const nodes = [[0, 0]].concat(SLOT_POS.map(s => [s[0] * 0.72, s[1] * 0.60]));
-  const n = nodes.length, inTree = new Array(n).fill(false);
-  const adj = Array.from({ length: n }, () => []);
-  inTree[0] = true; let count = 1;
-  while(count < n){
-    let best = null;
-    for(let i = 0; i < n; i++){
-      if(!inTree[i]) continue;
-      for(let j = 0; j < n; j++){
-        if(inTree[j]) continue;
-        const d = Math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1]);
-        if(!best || d < best.d) best = { i, j, d };
+  const adj = Array.from({ length: MAP_NODE }, () => []);
+  const link = (a, b) => { adj[a].push(b); adj[b].push(a); };
+  const mst = (coords, off) => {
+    const n = coords.length, inT = new Array(n).fill(false);
+    inT[0] = true; let cnt = 1;
+    while(cnt < n){
+      let best = null;
+      for(let i = 0; i < n; i++){
+        if(!inT[i]) continue;
+        for(let j = 0; j < n; j++){
+          if(inT[j]) continue;
+          const d = Math.hypot(coords[i][0]-coords[j][0], coords[i][1]-coords[j][1]);
+          if(!best || d < best.d) best = { i, j, d };
+        }
       }
+      inT[best.j] = true; cnt++; link(off + best.i, off + best.j);
     }
-    inTree[best.j] = true; count++;
-    adj[best.i].push(best.j); adj[best.j].push(best.i);
-  }
+  };
+  MAP_CONT.forEach((c, ci) => {
+    const coords = [[c[0], c[1]]].concat(SLOT_POS.map(s => [c[0] + s[0]*MAPKX, c[1] + s[1]*MAPKY]));
+    mst(coords, ci === 0 ? 0 : 21);
+  });
+  link(0, 21); /* puente entre las dos fortalezas centrales */
   return adj;
 })();
+function mapPosNode(pos){
+  const N = SLOT_POS.length, p = (((pos % (2*N)) + 2*N) % (2*N));
+  const c = Math.floor(p / N), s = p % N;
+  return c === 0 ? (s + 1) : (22 + s);
+}
 function mapPathNodes(fromPos, toPos){
-  const n = SLOT_POS.length;
-  const from = (((fromPos % n) + n) % n) + 1, to = (((toPos % n) + n) % n) + 1;
+  const from = mapPosNode(fromPos), to = mapPosNode(toPos);
+  if(from === to) return [from];
   const prev = { [from]: -1 }, q = [from];
   while(q.length){
     const cur = q.shift();
@@ -166,16 +188,15 @@ function mapPathNodes(fromPos, toPos){
   return path;
 }
 function mapNodePct(idx){
-  if(idx === 0) return [50, 50];
-  const s = SLOT_POS[idx - 1];
-  return [50 + s[0] * 0.045, 50 + s[1] * 0.0545];
+  const xy = mapNodeXY(idx);
+  return [xy[0] / MAPW * 100, xy[1] / MAPH * 100];
 }
 function mapPointAt(points, t){
   if(points.length < 2) return points[0] || [50, 50];
   const segs = []; let total = 0;
   for(let i = 0; i < points.length - 1; i++){
-    const dx = (points[i + 1][0] - points[i][0]) / 100 * 1600;
-    const dy = (points[i + 1][1] - points[i][1]) / 100 * 1100;
+    const dx = (points[i + 1][0] - points[i][0]) / 100 * MAPW;
+    const dy = (points[i + 1][1] - points[i][1]) / 100 * MAPH;
     const L = Math.hypot(dx, dy); segs.push(L); total += L;
   }
   let d = t * total;
@@ -495,33 +516,46 @@ const Game = {
   renderMap(){
     const N = SLOT_POS.length;
     const list = this.mapList || [];
-    const bySlot = {};
-    list.forEach(r => { const s = ((r.pos % N) + N) % N; if(bySlot[s] == null) bySlot[s] = r; });
-    const KX = 0.045, KY = 0.0545;
-    const pcX = sx => (50 + sx * KX).toFixed(2);
-    const pcY = sy => (50 + sy * KY).toFixed(2);
+    const byKey = {};
+    list.forEach(r => {
+      const p = ((r.pos % (2*N)) + 2*N) % (2*N);
+      const c = Math.floor(p / N), s = p % N, key = c*N + s;
+      if(byKey[key] == null) byKey[key] = r;
+    });
     let pins = "";
-    for(let i = 0; i < N; i++){
-      const sx = SLOT_POS[i][0], sy = SLOT_POS[i][1];
-      const r = bySlot[i];
-      if(r){
-        const fac = r.faction === "horda" ? "horda" : "alianza";
-        pins += `<div class="mPin ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}" style="left:${pcX(sx)}%;top:${pcY(sy)}%">
-            <div class="mPinCastle">🏰</div>
-            <div class="mPinName">${esc(r.name)}</div>
-            ${r.alliance ? `<div class="mPinTag">[${esc(r.alliance)}]</div>` : ""}
-          </div>`;
-      }else{
-        pins += `<div class="mPin empty" style="left:${pcX(sx)}%;top:${pcY(sy)}%"><div class="mPinCastle">🏰</div></div>`;
+    for(let c = 0; c < 2; c++){
+      for(let s = 0; s < N; s++){
+        const node = (c === 0 ? (s + 1) : (22 + s));
+        const pc = mapNodePct(node);
+        const r = byKey[c*N + s];
+        if(r){
+          const fac = r.faction === "horda" ? "horda" : "alianza";
+          pins += `<div class="mPin ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
+              <div class="mPinCastle">🏰</div>
+              <div class="mPinName">${esc(r.name)}</div>
+              ${r.alliance ? `<div class="mPinTag">[${esc(r.alliance)}]</div>` : ""}
+            </div>`;
+        }else{
+          pins += `<div class="mPin empty" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%"><div class="mPinCastle">🏰</div></div>`;
+        }
       }
     }
+    const thrones = [
+      { node: 0,  name: "TRONO DE AZEROTH" },
+      { node: 21, name: "TRONO DE KALIMDOR" }
+    ];
+    let throneHtml = "";
+    thrones.forEach(t => {
+      const pc = mapNodePct(t.node);
+      throneHtml += `<div class="mPin throne" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
+          <div class="mPinCastle">🏯</div>
+          <div class="mPinName">${t.name}</div>
+        </div>`;
+    });
     $("#tabMap").innerHTML = `
       <div class="mapWrap"><div class="mapInner" id="m2root">
         <img class="mapImg" src="img/mapa.jpg" alt="Mapa de Azeroth">
-        <div class="mPin throne" style="left:50%;top:50%">
-          <div class="mPinCastle">🏯</div>
-          <div class="mPinName">TRONO DE AZEROTH</div>
-        </div>
+        ${throneHtml}
         ${pins}
         <div class="armyLayer" id="armyLayer"></div>
       </div></div>`;

@@ -234,10 +234,10 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   color:var(--dim); pointer-events:none; text-shadow:0 1px 3px #000}
 
 /* ---------- mapa (imagen pergamino) ---------- */
-.mapWrap{position:relative; margin:8px 0}
-.mapInner{position:relative; width:100%; max-width:1500px; margin:0 auto; border-radius:16px; overflow:hidden;
+.mapWrap{position:relative; margin:8px 0; text-align:center; overflow:auto}
+.mapInner{position:relative; display:inline-block; border-radius:16px; overflow:hidden;
   border:1px solid var(--line); box-shadow:0 16px 46px rgba(0,0,0,.6)}
-.mapImg{width:100%; display:block}
+.mapImg{display:block; max-width:100%; max-height:150vh; width:auto; height:auto}
 .mPin{position:absolute; transform:translate(-50%,-100%); text-align:center; cursor:pointer; z-index:2}
 .mPin.empty{opacity:.5; pointer-events:none}
 .mPin .mPinCastle{font-size:24px; line-height:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,.85))}
