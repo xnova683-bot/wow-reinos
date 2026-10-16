@@ -136,3 +136,106 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 grant execute on function public.wow_admin_setadmin(text, text, boolean) to anon, authenticated;
+
+-- ================================================================
+-- La cuenta de administracion NO participa en el juego:
+--   sin castillo en el mapa, fuera del ranking y no atacable/espiable.
+--   (redifine wow_map / wow_leaderboard / wow_attack / wow_spy)
+-- ================================================================
+create or replace function public.wow_map(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'id', w.id, 'pos', w.pos, 'name', w.name, 'faction', w.faction,
+             'alliance', coalesce(al.tag,''), 'points', _wow_points(w.id), 'me', w.id = u.id)
+           order by w.pos), '[]') into out
+    from wow_users w left join wow_alliances al on al.id = w.alliance
+   where w.active and not w.is_admin;
+  return out;
+end $$;
+grant execute on function public.wow_map(text) to anon, authenticated;
+
+create or replace function public.wow_leaderboard(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'name', s.name, 'faction', s.faction, 'points', s.lsum*100 + s.tsum,
+             'level_sum', s.lsum, 'troops', s.tsum, 'created', s.created,
+             'alliance', s.atag, 'me', s.id = u.id) order by s.lsum*100 + s.tsum desc, s.created), '[]') into out
+    from (
+      select w.id, w.name, w.faction, w.created, coalesce(al.tag,'') atag,
+             coalesce((select sum(b.level) from wow_buildings b where b.owner_id = w.id),0) lsum,
+             coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0) tsum
+        from wow_users w left join wow_alliances al on al.id = w.alliance where w.active and not w.is_admin
+    ) s;
+  return out;
+end $$;
+grant execute on function public.wow_leaderboard(text) to anon, authenticated;
+
+create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  u := _wow_tick(u.id);
+  if p_target = u.id then raise exception 'No puedes atacarte a ti mismo.'; end if;
+  select * into t from wow_users where id = p_target and active;
+  if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
+  if t.is_admin then raise exception 'No puedes atacar a un administrador.'; end if;
+  if t.alliance is not null and t.alliance = u.alliance then
+    raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;
+  if p_troops is null or p_troops = '{}'::jsonb then raise exception 'Elige las tropas a enviar.'; end if;
+  sent := '{}'::jsonb;
+  for e in select key as kk, value as vv from jsonb_each_text(p_troops) loop
+    if e.kk not in ('soldado','arquero','jinete','mago','paladin','dragon') then raise exception 'Tropa no válida.'; end if;
+    begin v := (e.vv)::int; exception when others then v := 0; end;
+    if v > 0 then
+      if (select coalesce(qty,0) from wow_troops where owner_id=u.id and tkey=e.kk) < v then
+        raise exception 'No tienes suficientes tropas de ese tipo.'; end if;
+      sent := sent || jsonb_build_object(e.kk, v);
+    end if;
+  end loop;
+  if sent = '{}'::jsonb then raise exception 'Elige al menos una tropa.'; end if;
+  for e in select key as kk, value as vv from jsonb_each_text(sent) loop
+    update wow_troops set qty = qty - (e.vv)::int where owner_id=u.id and tkey=e.kk;
+  end loop;
+  travel := _wow_travel(u.pos, t.pos);
+  ms := (extract(epoch from now())*1000)::bigint;
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', 'attack', ms, ms + travel*1000, ms);
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
+end $$;
+grant execute on function public.wow_attack(text, text, jsonb) to anon, authenticated;
+
+create or replace function public.wow_spy(p_token text, p_target text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; t wow_users; ms bigint; travel integer; cost numeric := 150;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  u := _wow_tick(u.id);
+  if p_target = u.id then raise exception 'No puedes espiar tu propio reino.'; end if;
+  select * into t from wow_users where id = p_target and active;
+  if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
+  if t.is_admin then raise exception 'No puedes espiar a un administrador.'; end if;
+  if t.alliance is not null and t.alliance = u.alliance then
+    raise exception 'No puedes espiar a un miembro de tu alianza.'; end if;
+  if u.gold < cost then raise exception 'Necesitas % de oro para enviar un espía.', cost; end if;
+  update wow_users set gold = gold - cost where id = u.id;
+  travel := _wow_travel(u.pos, t.pos);
+  ms := (extract(epoch from now())*1000)::bigint;
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, t.id, '{}'::jsonb, '{}'::jsonb, 'outbound', 'spy', ms, ms + travel*1000, ms);
+  return jsonb_build_object('ok', true, 'travel', travel, 'cost', cost, 'target', t.name);
+end $$;
+grant execute on function public.wow_spy(text, text) to anon, authenticated;
