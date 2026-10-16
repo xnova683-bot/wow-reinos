@@ -36,6 +36,7 @@ create table if not exists public.wow_fleets(
   arrive_ms bigint not null default 0
 );
 alter table public.wow_fleets add column if not exists kind text not null default 'attack';
+alter table public.wow_fleets add column if not exists leg_start_ms bigint not null default 0;
 create table if not exists public.wow_reports(
   id bigserial primary key,
   owner text not null references public.wow_users(id) on delete cascade,
@@ -341,7 +342,7 @@ begin
       (f.target,'in',   jsonb_build_object('dir','in','who',whoatt,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms);
 
     ret := _wow_travel((select pos from wow_users where id=f.target),(select pos from wow_users where id=f.attacker));
-    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000 where id = f.id;
+    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
   end loop;
 
   -- ---- regreso a casa ----
@@ -394,8 +395,8 @@ begin
   end loop;
   travel := _wow_travel(u.pos, t.pos);
   ms := (extract(epoch from now())*1000)::bigint;
-  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms)
-    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', 'attack', ms, ms + travel*1000);
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', 'attack', ms, ms + travel*1000, ms);
   return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
 end $$;
 grant execute on function public.wow_attack(text, text, jsonb) to anon, authenticated;
@@ -418,8 +419,8 @@ begin
   update wow_users set gold = gold - cost where id = u.id;
   travel := _wow_travel(u.pos, t.pos);
   ms := (extract(epoch from now())*1000)::bigint;
-  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms)
-    values (u.id, t.id, '{}'::jsonb, '{}'::jsonb, 'outbound', 'spy', ms, ms + travel*1000);
+  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, t.id, '{}'::jsonb, '{}'::jsonb, 'outbound', 'spy', ms, ms + travel*1000, ms);
   return jsonb_build_object('ok', true, 'travel', travel, 'cost', cost, 'target', t.name);
 end $$;
 grant execute on function public.wow_spy(text, text) to anon, authenticated;
@@ -503,3 +504,28 @@ begin
   return out;
 end $$;
 grant execute on function public.wow_map(text) to anon, authenticated;
+
+-- ---------- marchas (ejercitos en transito) para el mapa ----------
+create or replace function public.wow_marches(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; ms bigint; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  ms := (extract(epoch from now())*1000)::bigint;
+  select jsonb_build_object('now', ms, 'marches', coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', f.id, 'state', f.state, 'kind', f.kind, 'mine', f.attacker = u.id,
+      'from', case when f.state = 'outbound' then a.pos else d.pos end,
+      'to',   case when f.state = 'outbound' then d.pos else a.pos end,
+      'depart', f.leg_start_ms, 'arrive', f.arrive_ms
+    ) order by f.arrive_ms)
+    from wow_fleets f
+    join wow_users a on a.id = f.attacker
+    join wow_users d on d.id = f.target
+    where f.kind = 'attack' and f.state in ('outbound','returning') and f.leg_start_ms > 0
+  ), '[]')) into out;
+  return out;
+end $$;
+grant execute on function public.wow_marches(text) to anon, authenticated;

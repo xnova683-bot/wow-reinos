@@ -130,6 +130,66 @@ const DECOS = (() => {
   return out;
 })();
 
+/* red de caminos (MST) que dibuja el mapa: mover ejercitos por los caminos */
+const MAP_ROADS = (() => {
+  const nodes = [[0, 0]].concat(SLOT_POS.map(s => [s[0] * 0.72, s[1] * 0.60]));
+  const n = nodes.length, inTree = new Array(n).fill(false);
+  const adj = Array.from({ length: n }, () => []);
+  inTree[0] = true; let count = 1;
+  while(count < n){
+    let best = null;
+    for(let i = 0; i < n; i++){
+      if(!inTree[i]) continue;
+      for(let j = 0; j < n; j++){
+        if(inTree[j]) continue;
+        const d = Math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1]);
+        if(!best || d < best.d) best = { i, j, d };
+      }
+    }
+    inTree[best.j] = true; count++;
+    adj[best.i].push(best.j); adj[best.j].push(best.i);
+  }
+  return adj;
+})();
+function mapPathNodes(fromPos, toPos){
+  const n = SLOT_POS.length;
+  const from = (((fromPos % n) + n) % n) + 1, to = (((toPos % n) + n) % n) + 1;
+  const prev = { [from]: -1 }, q = [from];
+  while(q.length){
+    const cur = q.shift();
+    if(cur === to) break;
+    for(const nx of MAP_ROADS[cur]) if(!(nx in prev)){ prev[nx] = cur; q.push(nx); }
+  }
+  const path = []; let c = to;
+  while(c !== -1 && c !== undefined){ path.unshift(c); c = prev[c]; }
+  if(path[0] !== from) return [from, to];
+  return path;
+}
+function mapNodePct(idx){
+  if(idx === 0) return [50, 50];
+  const s = SLOT_POS[idx - 1];
+  return [50 + s[0] * 0.045, 50 + s[1] * 0.0545];
+}
+function mapPointAt(points, t){
+  if(points.length < 2) return points[0] || [50, 50];
+  const segs = []; let total = 0;
+  for(let i = 0; i < points.length - 1; i++){
+    const dx = (points[i + 1][0] - points[i][0]) / 100 * 1600;
+    const dy = (points[i + 1][1] - points[i][1]) / 100 * 1100;
+    const L = Math.hypot(dx, dy); segs.push(L); total += L;
+  }
+  let d = t * total;
+  for(let i = 0; i < segs.length; i++){
+    if(d <= segs[i] || i === segs.length - 1){
+      const f = segs[i] ? Math.min(1, d / segs[i]) : 0;
+      return [points[i][0] + (points[i + 1][0] - points[i][0]) * f,
+              points[i][1] + (points[i + 1][1] - points[i][1]) * f];
+    }
+    d -= segs[i];
+  }
+  return points[points.length - 1];
+}
+
 /* ---------------- portal (entrar / crear) ---------------- */
 const Auth = {
   fac: null,
@@ -162,7 +222,7 @@ const Auth = {
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
         if(Game.tab === "troop") Game.renderTroop();
-        if(Game.tab === "map") Game.loadMap();
+        if(Game.tab === "map") Game.loadMap(); else { Game.stopMarchLoop(); Game.stopMarchPoll(); }
         if(Game.tab === "mil") Game.loadMil();
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
       };
@@ -258,7 +318,7 @@ const Game = {
     await this.refresh();
     this.loop();
   },
-  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; },
+  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this.stopMarchLoop(); this.stopMarchPoll(); },
   async refresh(){
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
@@ -462,12 +522,61 @@ const Game = {
           <div class="mPinName">TRONO DE AZEROTH</div>
         </div>
         ${pins}
+        <div class="armyLayer" id="armyLayer"></div>
       </div></div>
-      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · toca un castillo para ver su ficha</div>`;
+      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · ⚔️ ejércitos en camino · toca un castillo para ver su ficha</div>`;
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
+    this.loadMarches();
+    this.startMarchLoop();
+    this.startMarchPoll();
   },
+  async loadMarches(){
+    try{
+      const r = await sbRpc("wow_marches", { p_token: this.me.token });
+      this.marches = (r && r.marches) || [];
+    }catch(e){ this.marches = this.marches || []; }
+    this.renderMarches();
+  },
+  renderMarches(){
+    const layer = document.getElementById("armyLayer"); if(!layer) return;
+    layer.innerHTML = "";
+    this._marchTokens = [];
+    (this.marches || []).forEach((m, idx) => {
+      if(m.from == null || m.to == null) return;
+      const reach = mapPathNodes(m.from, m.to).map(mapNodePct);
+      const el = document.createElement("div");
+      el.className = "mArmy" + (m.mine ? " mine" : "") + (m.state === "returning" ? " back" : "");
+      el.textContent = m.state === "returning" ? "🚩" : "⚔️";
+      layer.appendChild(el);
+      this._marchTokens.push({ el, pts: reach, depart: m.depart, arrive: m.arrive, seed: idx * 1.7 });
+    });
+  },
+  startMarchLoop(){
+    this.stopMarchLoop();
+    const step = () => {
+      const now = Date.now();
+      (this._marchTokens || []).forEach(tk => {
+        const total = tk.arrive - tk.depart;
+        let p = total > 0 ? (now - tk.depart) / total : 1;
+        p = Math.max(0, Math.min(1, p));
+        const pt = mapPointAt(tk.pts, p);
+        tk.el.style.left = pt[0].toFixed(2) + "%";
+        tk.el.style.top = pt[1].toFixed(2) + "%";
+        const bob = (Math.sin(now / 170 + tk.seed) * 2.2).toFixed(1);
+        tk.el.style.transform = "translate(-50%,-50%) translateY(" + bob + "px)";
+      });
+      this._mapRAF = requestAnimationFrame(step);
+    };
+    step();
+  },
+  stopMarchLoop(){ if(this._mapRAF){ cancelAnimationFrame(this._mapRAF); this._mapRAF = null; } },
+  startMarchPoll(){
+    this.stopMarchPoll();
+    this._marchTimer = setInterval(() => { if(this.tab === "map") this.loadMarches(); }, 5000);
+  },
+  stopMarchPoll(){ if(this._marchTimer){ clearInterval(this._marchTimer); this._marchTimer = null; } },
   openProfile(pos){
     const r = (this.mapList || []).find(x => x.pos === pos); if(!r) return;
     const fac = r.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
