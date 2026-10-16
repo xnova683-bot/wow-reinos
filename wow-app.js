@@ -80,7 +80,7 @@ function showScreen(id){
 const BLD = {
   mina:       { e: "⛏️", n: "Mina de Mineral", d: "Extrae mineral del subsuelo",      p: "+{v} mineral/h" },
   aserradero: { e: "🪵", n: "Aserradero",      d: "Corta madera para tus obras",      p: "+{v} madera/h", img: "img/aserradero.jpg" },
-  tesoreria:  { e: "💰", n: "Tesorería",       d: "Genera oro para tu reino",         p: "+{v} oro/h" },
+  tesoreria:  { e: "🪙", n: "Mina de Oro",     d: "Extrae oro de las vetas del subsuelo", p: "+{v} oro/h" },
   almacen:    { e: "📦", n: "Almacén",         d: "Guarda más recursos",              p: "Capacidad: {v}" },
   cuartel:    { e: "⚔️", n: "Cuartel",         d: "Entrena a tus tropas",             p: "Necesario para tropas" },
   herreria:   { e: "🛠️", n: "Herrería",        d: "Forja acero: sube el daño de tus tropas", p: "+{v}% daño de tus tropas" },
