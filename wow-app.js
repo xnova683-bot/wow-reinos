@@ -433,85 +433,39 @@ const Game = {
   },
   renderMap(){
     const N = SLOT_POS.length;
-    const rot = this.mapRot || 0, tilt = this.mapTilt != null ? this.mapTilt : 56;
     const list = this.mapList || [];
     const bySlot = {};
     list.forEach(r => { const s = ((r.pos % N) + N) % N; if(bySlot[s] == null) bySlot[s] = r; });
-
-    let pieces = "";
-    DECOS.forEach(d => {
-      pieces += `<div class="m3stand" style="--x:${d.x}px;--y:${d.y}px">
-          <div class="m3dshadow"></div>
-          <div class="m3deco" style="--s:${d.s.toFixed(2)}"><span class="e">${d.e}</span></div>
-        </div>`;
-    });
+    const KX = 0.045, KY = 0.0545;
+    const pcX = sx => (50 + sx * KX).toFixed(2);
+    const pcY = sy => (50 + sy * KY).toFixed(2);
+    let pins = "";
     for(let i = 0; i < N; i++){
-      const x = SLOT_POS[i][0], y = SLOT_POS[i][1];
+      const sx = SLOT_POS[i][0], sy = SLOT_POS[i][1];
       const r = bySlot[i];
       if(r){
         const fac = r.faction === "horda" ? "horda" : "alianza";
-        pieces += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
-            <div class="m3shadow"></div>
-            <div class="m3bill ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}">
-              <div class="m3castle">🏰</div>
-              <div class="m3name">${esc(r.name)}</div>
-              ${r.alliance ? `<div class="m3tag">[${esc(r.alliance)}]</div>` : ""}
-            </div>
+        pins += `<div class="mPin ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}" style="left:${pcX(sx)}%;top:${pcY(sy)}%">
+            <div class="mPinCastle">🏰</div>
+            <div class="mPinName">${esc(r.name)}</div>
+            ${r.alliance ? `<div class="mPinTag">[${esc(r.alliance)}]</div>` : ""}
           </div>`;
       }else{
-        pieces += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
-            <div class="m3shadow"></div>
-            <div class="m3bill empty"><div class="m3castle">🏰</div></div>
-          </div>`;
+        pins += `<div class="mPin empty" style="left:${pcX(sx)}%;top:${pcY(sy)}%"><div class="mPinCastle">🏰</div></div>`;
       }
     }
     $("#tabMap").innerHTML = `
-      <div class="map3d" id="m3root" style="--rotz:${rot}deg;--tilt:${tilt}deg">
-        <div class="stars"></div>
-        <div class="m3stage">
-          <div class="m3ground"></div>
-          <div class="m3shore"></div>
-          <div class="m3stand" style="--x:0px;--y:0px">
-            <div class="m3shadow central"></div>
-            <div class="m3bill central">
-              <div class="m3castle">🏯</div>
-              <div class="m3name">TRONO DE AZEROTH</div>
-            </div>
-          </div>
-          ${pieces}
+      <div class="mapWrap"><div class="mapInner" id="m2root">
+        <img class="mapImg" src="img/mapa.jpg" alt="Mapa de Azeroth">
+        <div class="mPin throne" style="left:50%;top:50%">
+          <div class="mPinCastle">🏯</div>
+          <div class="mPinName">TRONO DE AZEROTH</div>
         </div>
-        <div class="mapHint3d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · arrastra para girar · toca un castillo para ver su ficha</div>
-      </div>`;
-    const root = document.getElementById("m3root");
-    const fitScale = () => {
-      const r = document.getElementById("m3root"); if(!r) return;
-      const w = r.clientWidth || 820, h = r.clientHeight || 600;
-      const s = Math.min(w / 1560, h / 1180);
-      r.style.setProperty("--scale", Math.max(0.32, Math.min(1.05, s)).toFixed(3));
-    };
-    fitScale();
-    if(!this._resizeHooked){ this._resizeHooked = true; window.addEventListener("resize", fitScale); }
-    let dragging = false, moved = false, sx = 0, sy = 0, r0 = 0, t0 = 0;
-    root.addEventListener("pointerdown", e => {
-      dragging = true; moved = false; sx = e.clientX; sy = e.clientY;
-      r0 = this.mapRot || 0; t0 = this.mapTilt != null ? this.mapTilt : 56;
-      root.classList.add("grab");
-      try{ root.setPointerCapture(e.pointerId); }catch(_){}
-    });
-    root.addEventListener("pointermove", e => {
-      if(!dragging) return;
-      const dx = e.clientX - sx, dy = e.clientY - sy;
-      if(Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-      this.mapRot = r0 + dx * 0.4;
-      this.mapTilt = Math.max(38, Math.min(72, t0 - dy * 0.15));
-      root.style.setProperty("--rotz", this.mapRot.toFixed(1) + "deg");
-      root.style.setProperty("--tilt", this.mapTilt.toFixed(1) + "deg");
-    });
-    const endDrag = () => { dragging = false; root.classList.remove("grab"); };
-    root.addEventListener("pointerup", endDrag);
-    root.addEventListener("pointercancel", endDrag);
-    root.querySelectorAll(".m3bill[data-pos]").forEach(b => {
-      b.onclick = () => { if(!moved) this.openProfile(parseInt(b.dataset.pos, 10)); };
+        ${pins}
+      </div></div>
+      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · toca un castillo para ver su ficha</div>`;
+    $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
+      b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
   },
   openProfile(pos){
