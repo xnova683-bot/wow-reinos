@@ -79,7 +79,7 @@ function showScreen(id){
 /* ---------------- datos del juego ---------------- */
 const BLD = {
   mina:       { e: "⛏️", n: "Mina de Mineral", d: "Extrae mineral del subsuelo",      p: "+{v} mineral/h" },
-  aserradero: { e: "🪵", n: "Aserradero",      d: "Corta madera para tus obras",      p: "+{v} madera/h" },
+  aserradero: { e: "🪵", n: "Aserradero",      d: "Corta madera para tus obras",      p: "+{v} madera/h", img: "img/aserradero.jpg" },
   tesoreria:  { e: "💰", n: "Tesorería",       d: "Genera oro para tu reino",         p: "+{v} oro/h" },
   almacen:    { e: "📦", n: "Almacén",         d: "Guarda más recursos",              p: "Capacidad: {v}" },
   cuartel:    { e: "⚔️", n: "Cuartel",         d: "Entrena a tus tropas",             p: "Necesario para tropas" },
@@ -380,9 +380,8 @@ const Game = {
                  : (b.prod > 0 ? m.p.replace("{v}", un(b.prod)) : m.d);
       const noG = s.gold < b.cost.gold, noW = s.wood < b.cost.wood, noO = s.ore < b.cost.ore;
       const can = !busy && !noG && !noW && !noO;
-      html += `<div class="card">
-        <div class="cardTop">
-          <span class="emoji">${m.e}</span>
+      const body = `<div class="cardTop">
+          ${m.img ? "" : `<span class="emoji">${m.e}</span>`}
           <div><div class="bName">${m.n}<span class="lvl">Nv. ${b.level}</span></div>
           <div class="bDesc">${prod}</div></div>
         </div>
@@ -394,8 +393,10 @@ const Game = {
             <span class="c">⏱ ${tfmt(b.time)}</span>
           </div>
           <button class="btn sm" data-up="${b.key}" ${can ? "" : "disabled"}>⬆️ Subir</button>
-        </div>
-      </div>`;
+        </div>`;
+      html += m.img
+        ? `<div class="card hasPic"><div class="picBody">${body}</div><div class="picSide"><img class="troopImg" src="${m.img}" alt="${m.n}"></div></div>`
+        : `<div class="card">${body}</div>`;
     });
     html += "</div>";
     $("#tabBld").innerHTML = html;
