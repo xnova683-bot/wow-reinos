@@ -778,7 +778,8 @@ const Game = {
     const rows = troops.map(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key };
       return `<div class="atkRow"><span class="an">${m.e || "⚔️"} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
-        <input id="atkq_${t.key}" type="number" min="0" max="${t.qty}" value="0" inputmode="numeric"></div>`;
+        <input id="atkq_${t.key}" type="number" min="0" max="${t.qty}" value="0" inputmode="numeric">
+        <button class="btn sm" data-max="${t.key}">MAX</button></div>`;
     }).join("");
     modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
       <p style="color:var(--dim);font-size:13px;margin:4px 0 8px">Elige cuántas tropas enviar. La batalla se resuelve al llegar; los supervivientes vuelven con el botín.</p>
@@ -788,6 +789,13 @@ const Game = {
       <div style="text-align:center;margin-top:14px"><button class="btn" id="atkGo">⚔️ Enviar ataque</button></div>`);
     const go = document.getElementById("atkGo");
     if(go) go.onclick = () => this.sendAttack(r);
+    document.querySelectorAll('#modalBox button[data-max]').forEach(b => {
+      b.onclick = () => {
+        const k = b.dataset.max;
+        const inp = document.getElementById("atkq_" + k);
+        if(inp) inp.value = Number(inp.max) || 0;
+      };
+    });
   },
   async sendAttack(r){
     const payload = {};
