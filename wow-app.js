@@ -382,7 +382,7 @@ const Game = {
           </div>
         </div>
         <div class="troopRow">
-          <input id="qty_${t.key}" type="number" min="1" max="100000" value="10" ${(!unlocked || busy) ? "disabled" : ""}>
+          <input id="qty_${t.key}" type="number" min="1" max="100000" value="" placeholder="Cantidad" ${(!unlocked || busy) ? "disabled" : ""}>
           <button class="btn sm" data-tr="${t.key}" ${(!unlocked || busy) ? "disabled" : ""}>⚔️ Entrenar</button>
         </div>`;
       html += m.img
@@ -397,7 +397,9 @@ const Game = {
   },
   async train(k){
     const inp = document.getElementById("qty_" + k);
-    const qty = Math.max(1, Math.min(100000, parseInt(inp && inp.value, 10) || 0));
+    const n = parseInt(inp && inp.value, 10);
+    if(!n || n < 1){ toast("Escribe cuántas unidades quieres entrenar", true); if(inp) inp.focus(); return; }
+    const qty = Math.min(100000, n);
     toast("⚔️ Entrenando " + qty + "…");
     try{ await sbRpc("wow_train", { p_token: this.me.token, p_key: k, p_qty: qty }); await this.refresh(); }
     catch(e){ toast(shortMsg(e), true); }
