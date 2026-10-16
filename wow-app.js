@@ -373,6 +373,7 @@ const Game = {
     $("#rGold").textContent = fmt(g);  $("#rGoldH").textContent = "+" + un(s.rate.gold) + "/h";
     $("#rWood").textContent = fmt(w);  $("#rWoodH").textContent = "+" + un(s.rate.wood) + "/h";
     $("#rOre").textContent  = fmt(o);  $("#rOreH").textContent  = "+" + un(s.rate.ore) + "/h";
+    $("#rCup").textContent = fmt(s.cup||0);  $("#rCupH").textContent = "+" + un(s.rate.cup||0) + "/h";
     $("#rCap").textContent  = un(s.capacity) + " máx.";
     const q = s.queue, box = $("#queueBox");
     if(q && q.finish){
@@ -922,7 +923,7 @@ const Game = {
           (u.is_admin ? '<span class="admTag">ADMIN</span>' : '') +
           (u.active ? '' : '<span class="admTag ban">BANEADO</span>') +
           '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
-        '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) +
+        '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
           (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + '</div>' +
         '<div class="admActs">' +
           '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
@@ -958,6 +959,7 @@ const Game = {
         '<label>Oro<input id="admG" type="number" value="1000"></label>' +
         '<label>Madera<input id="admW" type="number" value="1000"></label>' +
         '<label>Mineral<input id="admO" type="number" value="1000"></label>' +
+        '<label>CUP<input id="admC" type="number" value="0"></label>' + +
       '</div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Aplicar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
@@ -965,7 +967,7 @@ const Game = {
       $("#admGo").disabled = true;
       try{
         await sbRpc("wow_admin_grant", { p_token: this.me.token, p_id: u.id,
-          p_gold: Number($("#admG").value) || 0, p_wood: Number($("#admW").value) || 0, p_ore: Number($("#admO").value) || 0 });
+          p_gold: Number($("#admG").value) || 0, p_wood: Number($("#admW").value) || 0, p_ore: Number($("#admO").value) || 0, p_cup: Number($("#admC").value) || 0 });
         modalClose(); toast("Recursos actualizados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };

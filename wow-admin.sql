@@ -52,7 +52,7 @@ end $$;
 grant execute on function public.wow_admin_list(text) to anon, authenticated;
 
 -- dar/quitar recursos (valores negativos restan; no baja de 0)
-create or replace function public.wow_admin_grant(p_token text, p_id text, p_gold numeric, p_wood numeric, p_ore numeric)
+create or replace function public.wow_admin_grant(p_token text, p_id text, p_gold numeric, p_wood numeric, p_ore numeric, p_cup numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare a wow_users;
 begin
@@ -61,11 +61,12 @@ begin
   update wow_users set
       gold = greatest(0, gold + coalesce(p_gold,0)),
       wood = greatest(0, wood + coalesce(p_wood,0)),
-      ore  = greatest(0, ore  + coalesce(p_ore,0))
+      ore  = greatest(0, ore  + coalesce(p_ore,0)),
+      cup  = greatest(0, coalesce(cup,0) + coalesce(p_cup,0))
     where id = p_id;
   return jsonb_build_object('ok', true);
 end $$;
-grant execute on function public.wow_admin_grant(text, text, numeric, numeric, numeric) to anon, authenticated;
+grant execute on function public.wow_admin_grant(text, text, numeric, numeric, numeric, numeric) to anon, authenticated;
 
 -- dar/quitar tropas de un tipo (qty puede ser negativo; no baja de 0)
 create or replace function public.wow_admin_troops(p_token text, p_id text, p_key text, p_qty integer)

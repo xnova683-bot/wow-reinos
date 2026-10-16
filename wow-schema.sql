@@ -60,6 +60,7 @@ create table public.wow_users(
   gold numeric(16,2) not null default 500,
   wood numeric(16,2) not null default 500,
   ore numeric(16,2) not null default 500,
+  cup numeric(16,2) not null default 0,
   pos integer not null default 0,
   alliance text
 );
@@ -185,7 +186,7 @@ begin
          coalesce(max(case when bkey='aserradero' then level end),0),
          coalesce(max(case when bkey='mina' then level end),0)
     into g,w,o from wow_buildings where owner_id = p_owner;
-  return jsonb_build_object('gold', 30+25*g, 'wood', 30+25*w, 'ore', 30+25*o);
+  return jsonb_build_object('gold', 30+25*g, 'wood', 30+25*w, 'ore', 30+25*o, 'cup', 0);
 end $$;
 
 -- costo por unidad de tropa
@@ -651,6 +652,7 @@ create table if not exists public.wow_fleets(
 alter table public.wow_fleets add column if not exists kind text not null default 'attack';
 alter table public.wow_fleets add column if not exists leg_start_ms bigint not null default 0;
 alter table public.wow_users add column if not exists is_admin boolean not null default false;
+alter table public.wow_users add column if not exists cup numeric(16,2) not null default 0;
 create table if not exists public.wow_reports(
   id bigserial primary key,
   owner text not null references public.wow_users(id) on delete cascade,
@@ -1095,7 +1097,7 @@ begin
   pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
        + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
   return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
-    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'capacity', cap, 'rate', rate,
+    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
     'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms,
     'alliance', u.alliance,
     'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
@@ -1365,7 +1367,7 @@ end $$;
 grant execute on function public.wow_admin_list(text) to anon, authenticated;
 
 -- dar/quitar recursos (valores negativos restan; no baja de 0)
-create or replace function public.wow_admin_grant(p_token text, p_id text, p_gold numeric, p_wood numeric, p_ore numeric)
+create or replace function public.wow_admin_grant(p_token text, p_id text, p_gold numeric, p_wood numeric, p_ore numeric, p_cup numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare a wow_users;
 begin
@@ -1374,11 +1376,12 @@ begin
   update wow_users set
       gold = greatest(0, gold + coalesce(p_gold,0)),
       wood = greatest(0, wood + coalesce(p_wood,0)),
-      ore  = greatest(0, ore  + coalesce(p_ore,0))
+      ore  = greatest(0, ore  + coalesce(p_ore,0)),
+      cup  = greatest(0, coalesce(cup,0) + coalesce(p_cup,0))
     where id = p_id;
   return jsonb_build_object('ok', true);
 end $$;
-grant execute on function public.wow_admin_grant(text, text, numeric, numeric, numeric) to anon, authenticated;
+grant execute on function public.wow_admin_grant(text, text, numeric, numeric, numeric, numeric) to anon, authenticated;
 
 -- dar/quitar tropas de un tipo (qty puede ser negativo; no baja de 0)
 create or replace function public.wow_admin_troops(p_token text, p_id text, p_key text, p_qty integer)

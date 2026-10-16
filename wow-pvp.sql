@@ -38,6 +38,7 @@ create table if not exists public.wow_fleets(
 alter table public.wow_fleets add column if not exists kind text not null default 'attack';
 alter table public.wow_fleets add column if not exists leg_start_ms bigint not null default 0;
 alter table public.wow_users add column if not exists is_admin boolean not null default false;
+alter table public.wow_users add column if not exists cup numeric(16,2) not null default 0;
 create table if not exists public.wow_reports(
   id bigserial primary key,
   owner text not null references public.wow_users(id) on delete cascade,
@@ -482,7 +483,7 @@ begin
   pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
        + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
   return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
-    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'capacity', cap, 'rate', rate,
+    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
     'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms,
     'alliance', u.alliance,
     'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
