@@ -90,7 +90,7 @@ const BLD = {
 };
 const TRP = {
   soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica" },
-  arquero: { e: "🏹", n: "Arquero", d: "Ataca a distancia" },
+  arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg" },
   jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida" },
   mago:    { e: "🔮", n: "Mago",    d: "Daño mágico" },
   paladin: { e: "🛡️", n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones" },
@@ -365,14 +365,17 @@ const Game = {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
       const c = CTR[t.key] || { up: "—", dn: "—" };
       const noG = s.gold < t.cost.gold, noW = s.wood < t.cost.wood, noO = s.ore < t.cost.ore;
+      const left = m.img ? "" : `<span class="emoji">${m.e}</span>`;
+      const pic = m.img ? `<img class="troopImg" src="${m.img}" alt="${m.n}">` : "";
       html += `<div class="card">
         <div class="cardTop">
-          <span class="emoji">${m.e}</span>
-          <div><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
+          ${left}
+          <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
           <div class="bDesc">${m.d}</div>
           <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
           <div class="bDesc" style="color:var(--green)">▸ vence a ${c.up}</div>
           <div class="bDesc" style="color:var(--bad)">▸ teme a ${c.dn}</div></div>
+          ${pic}
         </div>
         <div class="cardBot">
           <div class="costs">
@@ -670,7 +673,7 @@ const Game = {
     const travel = (my && typeof r.pos === "number") ? Math.max(20, 15 + 3 * Math.abs(my.pos - r.pos)) : null;
     const rows = troops.map(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key };
-      return `<div class="atkRow"><span class="an">${m.e} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
+      return `<div class="atkRow"><span class="an">${m.e || "⚔️"} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
         <input id="atkq_${t.key}" type="number" min="0" max="${t.qty}" value="0" inputmode="numeric"></div>`;
     }).join("");
     modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
