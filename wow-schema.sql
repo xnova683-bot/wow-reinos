@@ -1137,7 +1137,10 @@ begin
     from wow_fleets f
     join wow_users a on a.id = f.attacker
     join wow_users d on d.id = f.target
-    where f.kind = 'attack' and f.state in ('outbound','returning') and f.leg_start_ms > 0
+    where f.leg_start_ms > 0 and (
+      (f.kind = 'attack' and f.state in ('outbound','returning'))
+      or (f.kind = 'spy' and f.state = 'outbound' and f.attacker = u.id)
+    )
   ), '[]')) into out;
   return out;
 end $$;

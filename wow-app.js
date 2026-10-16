@@ -524,7 +524,7 @@ const Game = {
         ${pins}
         <div class="armyLayer" id="armyLayer"></div>
       </div></div>
-      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · ⚔️ ejércitos en camino · toca un castillo para ver su ficha</div>`;
+      <div class="mapHint2d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · ⚔️ ejércitos en camino · 🕵️ tus espías · toca un castillo para ver su ficha</div>`;
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
@@ -547,8 +547,9 @@ const Game = {
       if(m.from == null || m.to == null) return;
       const reach = mapPathNodes(m.from, m.to).map(mapNodePct);
       const el = document.createElement("div");
-      el.className = "mArmy" + (m.mine ? " mine" : "") + (m.state === "returning" ? " back" : "");
-      el.textContent = m.state === "returning" ? "🚩" : "⚔️";
+      el.className = "mArmy" + (m.mine ? " mine" : "") +
+        (m.kind === "spy" ? " spy" : (m.state === "returning" ? " back" : ""));
+      el.textContent = m.kind === "spy" ? "🕵️" : (m.state === "returning" ? "🚩" : "⚔️");
       layer.appendChild(el);
       this._marchTokens.push({ el, pts: reach, depart: m.depart, arrive: m.arrive, seed: idx * 1.7 });
     });
