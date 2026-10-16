@@ -240,12 +240,14 @@ const Auth = {
         $("#tabMil").classList.toggle("hidden", Game.tab !== "mil");
         $("#tabAlly").classList.toggle("hidden", Game.tab !== "ally");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
+        $("#tabAdmin").classList.toggle("hidden", Game.tab !== "admin");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
         if(Game.tab === "troop") Game.renderTroop();
         if(Game.tab === "map") Game.loadMap(); else { Game.stopMarchLoop(); Game.stopMarchPoll(); }
         if(Game.tab === "mil") Game.loadMil();
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
+        if(Game.tab === "admin") Game.loadAdmin();
       };
     });
     this.portal();
@@ -336,6 +338,7 @@ const Game = {
     f.textContent = me.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
     f.className = "facBadge " + (me.faction === "horda" ? "horda" : "alianza");
     const ab = $("#gAlly"); if(ab){ ab.textContent = ""; ab.style.display = "none"; }
+    this.setAdminTab(!!me.is_admin);
     await this.refresh();
     this.loop();
   },
@@ -344,6 +347,7 @@ const Game = {
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
       this.stNow = Date.now();
+      this.setAdminTab(!!this.st.is_admin);
       $("#gPts").textContent = un(this.st.points);
       const ab = $("#gAlly");
       if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
@@ -889,6 +893,161 @@ const Game = {
     if(!confirm("¿Seguro que quieres salir de " + name + "?")) return;
     try{ await sbRpc("wow_alliance_leave", { p_token: this.me.token }); this.stopChatPoll(); await this.refresh(); await this.renderAlly(); toast("Has salido de la alianza."); }
     catch(e){ toast(shortMsg(e), true); }
+  },
+
+  /* ---------------- gestión (admin) ---------------- */
+  setAdminTab(on){
+    const btn = $("#tabBtnAdmin"); if(!btn) return;
+    btn.classList.toggle("hidden", !on);
+    if(!on && this.tab === "admin"){
+      const t = document.querySelector('.gameTabs [data-tab="bld"]'); if(t) t.click();
+    }
+  },
+  async loadAdmin(){
+    const el = $("#tabAdmin"); if(!el) return;
+    el.innerHTML = '<p class="empty">Cargando reinos…</p>';
+    try{ this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token }); }
+    catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
+    this.renderAdmin();
+  },
+  renderAdmin(){
+    const el = $("#tabAdmin"), d = this.adm; if(!el) return;
+    if(!d){ el.innerHTML = '<p class="empty">Sin datos.</p>'; return; }
+    const users = d.users || [];
+    const rows = users.map(u => {
+      const self = u.id === d.me;
+      return '<div class="admRow' + (u.active ? "" : " banned") + '">' +
+        '<div class="admHead"><b>' + esc(u.name) + '</b> <span class="admId">(' + esc(u.id) + ')</span>' +
+          (u.is_admin ? '<span class="admTag">ADMIN</span>' : '') +
+          (u.active ? '' : '<span class="admTag ban">BANEADO</span>') +
+          '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
+        '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) +
+          (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + '</div>' +
+        '<div class="admActs">' +
+          '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
+          '<button class="btn sm" data-a="trp" data-id="' + esc(u.id) + '">⚔️ Tropas</button>' +
+          '<button class="btn sm" data-a="pw" data-id="' + esc(u.id) + '">🔑 Clave</button>' +
+          (self ? '' :
+            '<button class="btn sm" data-a="adm" data-id="' + esc(u.id) + '">' + (u.is_admin ? "✋ Quitar admin" : "🛡️ Dar admin") + '</button>' +
+            '<button class="btn sm" data-a="ban" data-id="' + esc(u.id) + '" data-on="' + (u.active ? 1 : 0) + '">' + (u.active ? "🚫 Banear" : "✅ Reactivar") + '</button>' +
+            '<button class="btn sm danger" data-a="del" data-id="' + esc(u.id) + '">🗑️ Borrar</button>') +
+        '</div></div>';
+    }).join("");
+    el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="hint" style="flex:1">' + users.length +
+      ' reinos · ' + hora(d.now) + '</span><button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
+      '<div class="admList">' + rows + '</div>';
+    const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
+    el.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => this.admAction(b.dataset.a, b.dataset.id, b.dataset.on));
+  },
+  admUser(id){ return (this.adm && this.adm.users || []).find(x => x.id === id); },
+  admAction(a, id, on){
+    const u = this.admUser(id); if(!u) return;
+    if(a === "res") return this.admRes(u);
+    if(a === "trp") return this.admTrp(u);
+    if(a === "pw") return this.admPw(u);
+    if(a === "adm") return this.admSetAdmin(u);
+    if(a === "ban") return this.admBan(u, on === "1");
+    if(a === "del") return this.admDel(u);
+  },
+  admRes(u){
+    modal('<h2 style="margin-top:0;color:var(--gold)">💰 Recursos · ' + esc(u.name) + '</h2>' +
+      '<p class="hint">Valores negativos restan. Actual: 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + '</p>' +
+      '<div class="admInputs">' +
+        '<label>Oro<input id="admG" type="number" value="1000"></label>' +
+        '<label>Madera<input id="admW" type="number" value="1000"></label>' +
+        '<label>Mineral<input id="admO" type="number" value="1000"></label>' +
+      '</div>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Aplicar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_grant", { p_token: this.me.token, p_id: u.id,
+          p_gold: Number($("#admG").value) || 0, p_wood: Number($("#admW").value) || 0, p_ore: Number($("#admO").value) || 0 });
+        modalClose(); toast("Recursos actualizados."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admTrp(u){
+    const opts = Object.keys(TRP).map(k => '<option value="' + k + '">' + esc(TRP[k].n) + '</option>').join("");
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚔️ Tropas · ' + esc(u.name) + '</h2>' +
+      '<p class="hint">Total actual: ' + un(u.troops) + '. Negativo quita tropas.</p>' +
+      '<div class="admInputs">' +
+        '<label>Tropa<select id="admT">' + opts + '</select></label>' +
+        '<label>Cantidad<input id="admQ" type="number" value="100"></label>' +
+      '</div>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Aplicar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_troops", { p_token: this.me.token, p_id: u.id,
+          p_key: $("#admT").value, p_qty: Number($("#admQ").value) || 0 });
+        modalClose(); toast("Tropas actualizadas."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admPw(u){
+    modal('<h2 style="margin-top:0;color:var(--gold)">🔑 Resetear contraseña · ' + esc(u.name) + '</h2>' +
+      '<p class="hint">Se cerrará su sesión y deberá entrar con la nueva contraseña.</p>' +
+      '<div class="admInputs"><label>Nueva contraseña<input id="admP" type="text" value=""></label></div>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Cambiar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      const p = $("#admP").value;
+      if(!p || p.length < 4){ return notice($("#admMsg"), "Mínimo 4 caracteres.", "danger"); }
+      $("#admGo").disabled = true;
+      try{
+        const salt = newSalt();
+        const hash = await pbkdf2Hex(p, salt, 100000);
+        await sbRpc("wow_admin_setpw", { p_token: this.me.token, p_id: u.id, p_salt: salt, p_hash: hash });
+        modalClose(); toast("Contraseña cambiada. Compártela con el jugador.");
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admSetAdmin(u){
+    const to = !u.is_admin;
+    modal('<h2 style="margin-top:0;color:var(--gold)">' + (to ? "🛡️ Dar admin" : "✋ Quitar admin") + '</h2>' +
+      '<p class="hint">¿' + (to ? "Dar" : "Quitar") + ' permisos de administrador a <b>' + esc(u.name) + '</b>?</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Confirmar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_setadmin", { p_token: this.me.token, p_id: u.id, p_admin: to });
+        modalClose(); toast(to ? "Admin concedido." : "Admin retirado."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admBan(u, currentlyActive){
+    const target = !currentlyActive;
+    modal('<h2 style="margin-top:0;color:var(--gold)">' + (target ? "🚫 Banear" : "✅ Reactivar") + '</h2>' +
+      '<p class="hint">¿' + (target ? "Banear" : "Reactivar") + ' a <b>' + esc(u.name) + '</b>?' +
+      (target ? ' Su sesión se cerrará y no podrá entrar hasta que lo reactives.' : '') + '</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Confirmar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_ban", { p_token: this.me.token, p_id: u.id, p_active: !target });
+        modalClose(); toast(target ? "Reino baneado." : "Reino reactivado."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admDel(u){
+    modal('<h2 style="margin-top:0;color:var(--bad)">🗑️ Borrar reino</h2>' +
+      '<p class="hint">Se borrará <b>' + esc(u.name) + '</b> (' + esc(u.id) + ') con TODOS sus edificios, tropas y datos. ' +
+      'Esta acción NO se puede deshacer.</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo" style="background:var(--bad);color:#1a0606">Borrar definitivamente</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_delete", { p_token: this.me.token, p_id: u.id });
+        modalClose(); toast("Reino borrado."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
   }
 };
 
