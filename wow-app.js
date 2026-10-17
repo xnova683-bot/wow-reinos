@@ -595,6 +595,7 @@ const Game = {
     $("#m2root").querySelectorAll(".mPin.throne").forEach(b => {
       b.onclick = () => this.openThrone(parseInt(b.dataset.thr, 10));
     });
+    this.keepFx();
     this.loadMarches();
     this.startMarchLoop();
     this.startMarchPoll();
@@ -668,6 +669,11 @@ const Game = {
   _myNode(){
     const mine = (this.mapList || []).find(x => x.me);
     return mine ? mapPosNode(mine.pos) : null;
+  },
+  /* renderMap recrea el #armyLayer: re-adjunta los emojis de tropas en vuelo para no perderlos */
+  keepFx(){
+    const nl = document.getElementById("armyLayer"); if(!nl) return;
+    (this._fxTokens || []).forEach(tk => { if(tk && tk.el && tk.el.parent !== nl) nl.appendChild(tk.el); });
   },
   _nodePos(node){
     if(node === 0) return 0;
