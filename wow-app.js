@@ -1288,7 +1288,7 @@ Game.openThrone = async function(node){
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
         body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
-        for(let k in t.treasure) body += '<div class="row"><span>' + this.mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
+        for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
       }else body += '<div class="muted">Sin tesoro por ahora.</div>';
       body += '<div class="row"><span>Tributo</span><span>' + un(r.share||1) + '% del valor del trato</span></div>';
     }
@@ -1414,7 +1414,7 @@ Game.thrClaim = async function(node){
   try{
     const r = await sbRpc("wow_throne_claim", { p_token: this.me.token, p_node: node });
     const c = r.claimed || {};
-    const parts = Object.keys(c).filter(k => Number(c[k]) > 0).map(k => this.mktName(k) + ": " + un(c[k]));
+    const parts = Object.keys(c).filter(k => Number(c[k]) > 0).map(k => mktName(k) + ": " + un(c[k]));
     modalClose();
     toast("💰 Reclamado: " + (parts.length ? parts.join(", ") : "nada"));
     await this.refresh(); await this.loadMap();
