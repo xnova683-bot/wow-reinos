@@ -144,6 +144,21 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .allyCard .info{flex:1}
 .allyCard .t{font-size:15px; color:var(--txt)}
 .allyCard .m{font-size:12px; color:var(--dim)}
+.warsBox{display:flex; flex-direction:column; gap:8px}
+.warCard{background:#150f09; border:1px solid var(--line); border-radius:8px; padding:9px 12px}
+.warCard.mine{border-color:#b53b3b; box-shadow:0 0 12px rgba(181,59,59,.22)}
+.warCard .warSide{font-size:13px; color:var(--txt)}
+.warCard .warSide.r{text-align:right}
+.warScore{text-align:center; color:var(--gold); font-size:18px; font-weight:bold; letter-spacing:2px; margin:2px 0}
+.warDecl{display:flex; gap:8px; margin-top:6px}
+.warDecl select{flex:1}
+.allyRank{display:flex; flex-direction:column; gap:5px}
+.rankRow{display:flex; align-items:center; gap:8px; background:#150f09; border:1px solid var(--line); border-radius:7px; padding:6px 10px; font-size:13px}
+.rankRow.mine{border-color:var(--gold2)}
+.rankPos{width:20px; text-align:center; color:var(--gold); font-weight:bold}
+.rankTag{color:var(--gold)}
+.rankName{flex:1; color:var(--txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.rankStat{color:var(--dim); font-size:12px; white-space:nowrap}
 
 /* ---------- ataques / militar ---------- */
 .milBox{display:flex; flex-direction:column; gap:9px}

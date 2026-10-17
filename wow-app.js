@@ -864,13 +864,17 @@ const Game = {
         <button class="btn sm" data-join="${esc(a.id)}">Unirme</button>
       </div>`;
     });
-    html += `</div></div>`;
+    html += `</div>
+      <div class="secTitle">🏆 Ranking de alianzas</div>
+      <div id="allyRank" class="allyRank"></div></div>`;
     $("#tabAlly").innerHTML = html;
     $("#alCreate").onclick = () => this.createAlly();
     $("#tabAlly").querySelectorAll("[data-join]").forEach(b => { b.onclick = () => this.joinAlly(b.dataset.join); });
+    await this.loadRank("#allyRank");
   },
   async renderAllyMine(id){
     const info = await sbRpc("wow_alliance_info", { p_token: this.me.token, p_id: id });
+    this._allyInfo = info;
     let html = `<div class="allyBox">
       <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
       <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
@@ -880,17 +884,78 @@ const Game = {
       html += `<div class="mem${m.me ? " me" : ""}">${m.faction === "horda" ? "⚔️" : "🛡️"} ${esc(m.name)}${m.leader ? " 👑" : ""}<span class="memPts">${un(m.points)} pts</span></div>`;
     });
     html += `</div>
+      <div class="secTitle">⚔️ Guerras</div>
+      <div id="warsBox" class="warsBox"></div>
       <div class="secTitle">💬 Chat de la alianza</div>
       <div id="chatMsgs" class="chatBox"></div>
       <div class="chatRow"><input id="chatIn" placeholder="Escribe a tu alianza…" maxlength="300"><button class="btn sm" id="chatSend">Enviar</button></div>
       <div style="margin-top:14px"><button class="btn sm danger" id="allyLeave">🚪 Salir de la alianza</button></div>
+      <div class="secTitle">🏆 Ranking de alianzas</div>
+      <div id="allyRank" class="allyRank"></div>
     </div>`;
     $("#tabAlly").innerHTML = html;
     $("#chatSend").onclick = () => this.sendChat();
     $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
+    await this.loadWars();
     await this.loadChat();
+    await this.loadRank("#allyRank");
     this.startChatPoll();
+  },
+  async loadRank(sel){
+    try{
+      const list = await sbRpc("wow_alliance_rank", { p_token: this.me.token }) || [];
+      const box = document.querySelector(sel); if(!box) return;
+      if(!list.length){ box.innerHTML = '<div class="empty" style="padding:12px">Sin alianzas todavía.</div>'; return; }
+      box.innerHTML = list.map((a, i) => `<div class="rankRow${a.mine ? " mine" : ""}">
+        <span class="rankPos">${i + 1}</span>
+        <span class="rankTag">[${esc(a.tag)}]</span>
+        <span class="rankName">${esc(a.name)}</span>
+        <span class="rankStat">👥 ${a.members}</span>
+        <span class="rankStat">⭐ ${un(a.points)}</span>
+        <span class="rankStat">⚔️ ${un(a.troops)}</span>
+        <span class="rankStat">🏯 ${a.thrones}</span>
+        <span class="rankStat">🏆 ${a.wins}</span>
+      </div>`).join("");
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async loadWars(){
+    try{
+      const data = await sbRpc("wow_ally_wars", { p_token: this.me.token });
+      const box = document.getElementById("warsBox"); if(!box) return;
+      const wars = (data && data.wars) || [];
+      const isLeader = !!(this._allyInfo && this._allyInfo.leader === this.me.name);
+      let html = "";
+      if(!wars.length) html += '<div class="empty" style="padding:12px">No hay guerras activas. Reina la paz en Azeroth.</div>';
+      wars.forEach(w => {
+        const hrs = Math.max(0, Math.ceil((w.ends - Date.now()) / 3600000));
+        html += `<div class="warCard${w.mine ? " mine" : ""}">
+          <div class="warSide">[${esc(w.a_tag)}] ${esc(w.a_name)}</div>
+          <div class="warScore">${w.a_score} : ${w.b_score}</div>
+          <div class="warSide r">${esc(w.b_name)} [${esc(w.b_tag)}]</div>
+          <div class="warFoot">⏳ ${hrs} h${w.mine ? ' · <button class="btn sm danger" data-surrender="${w.id}">Rendirse</button>' : ""}</div>
+        </div>`;
+      });
+      if(isLeader){
+        const list = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || [];
+        const atWar = wars.filter(w => w.mine).map(w => w.i_am_a ? w.b : w.a);
+        const targets = list.filter(a => !a.mine && !atWars.includes(a.id));
+        if(targets.length){
+          html += `<div class="warDecl"><select id="warTarget">` +
+            targets.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}</option>`).join("") +
+            `</select><button class="btn sm danger" id="warGo">⚔️ Declarar guerra</button></div>`;
+        }
+      }
+      box.innerHTML = html;
+      const go = document.getElementById("warGo"); if(go) go.onclick = () => this.declareWar();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async declareWar(){
+    const sel = document.getElementById("warTarget"); const tid = sel ? sel.value : "";
+    if(!tid) return;
+    if(!confirm("¿Declarar la guerra? Durará 48 horas y cada victoria en combate sumará puntos a tu alianza.")) return;
+    try{ await sbRpc("wow_ally_war_declare", { p_token: this.me.token, p_target: tid }); await this.refresh(); await this.loadWars(); toast("¡Guerra declarada!"); }
+    catch(e){ toast(shortMsg(e), true); }
   },
   stopChatPoll(){ clearInterval(this.chatTimer); this.chatTimer = null; },
   startChatPoll(){ this.stopChatPoll(); this.chatTimer = setInterval(() => this.loadChat(), 4000); },
