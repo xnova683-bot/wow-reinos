@@ -521,6 +521,8 @@ const Game = {
       this.mapList = await sbRpc("wow_map", { p_token: this.me.token }) || [];
       try{ const ti = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = (ti && ti.thrones) || []; }
       catch(_){ this._thrones = this._thrones || []; }
+      try{ this._events = await sbRpc("wow_events", { p_token: this.me.token }) || []; }
+      catch(_){ this._events = this._events || []; }
       this.renderMap();
     }catch(e){ toast(shortMsg(e), true); }
   },
@@ -573,7 +575,8 @@ const Game = {
         ${throneHtml}
         ${pins}
         <div class="armyLayer" id="armyLayer"></div>
-      </div></div>`;
+      </div></div>
+      ${this.cronicaHtml()}`;
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
@@ -584,6 +587,13 @@ const Game = {
     this.loadMarches();
     this.startMarchLoop();
     this.startMarchPoll();
+  },
+  cronicaHtml(){
+    const evs = this._events || [];
+    if(!evs.length) return '<div class="cronica"><div class="muted">📜 Aún no hay sucesos en la crónica.</div></div>';
+    let body = '<div class="cronica"><div class="cronTitle">📜 Crónica de Azeroth</div>';
+    evs.forEach(e => body += '<div class="cronEvent">' + esc(e.text||"") + ' <span style="opacity:.55">· ' + hora(e.created) + '</span></div>');
+    return body + '</div>';
   },
   async loadMarches(){
     try{
