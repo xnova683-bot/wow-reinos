@@ -919,7 +919,10 @@ const Game = {
   async loadAdmin(){
     const el = $("#tabAdmin"); if(!el) return;
     el.innerHTML = '<p class="empty">Cargando reinos…</p>';
-    try{ this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token }); }
+    try{
+      this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token });
+      try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
+    }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
   },
@@ -947,11 +950,31 @@ const Game = {
         '</div></div>';
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · ' + hora(d.now) + '</span><button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · ' + hora(d.now) + '</span>' +
+      '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
+      '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
+    const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
     el.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => this.admAction(b.dataset.a, b.dataset.id, b.dataset.on));
+  },
+  admFee(){
+    const f = (this.mktFee != null) ? this.mktFee : 20;
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Comisión del mercado</h2>' +
+      '<p class="hint">Porcentaje que se descuenta de lo que <b>recibe el vendedor</b> y se destruye. Actual: <b>' + un(f) + '%</b>.</p>' +
+      '<div class="admInputs"><label>Comisión (%)<input id="admFeeIn" type="number" min="0" max="90" value="' + f + '"></label></div>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admGo").onclick = async () => {
+      const v = Number($("#admFeeIn").value);
+      if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "Debe estar entre 0 y 90.", "danger");
+      $("#admGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_setfee", { p_token: this.me.token, p_fee: v });
+        this.mktFee = v; modalClose(); toast("Comisión actualizada a " + un(v) + "%."); this.loadAdmin();
+      }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
   },
   admUser(id){ return (this.adm && this.adm.users || []).find(x => x.id === id); },
   admAction(a, id, on){
@@ -970,7 +993,7 @@ const Game = {
         '<label>Oro<input id="admG" type="number" value="1000"></label>' +
         '<label>Madera<input id="admW" type="number" value="1000"></label>' +
         '<label>Mineral<input id="admO" type="number" value="1000"></label>' +
-        '<label>CUP<input id="admC" type="number" value="0"></label>' + +
+        '<label>CUP<input id="admC" type="number" value="0"></label>' +
       '</div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Aplicar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
@@ -1070,61 +1093,85 @@ window.addEventListener("error", ev => {
 });
 document.addEventListener("DOMContentLoaded", () => Auth.init());
 
-/* ----- mercado ----- */
+/* ----- mercado (entre jugadores) ----- */
+const MKT_ITEMS = ["cup","gold","wood","ore","soldado","arquero","jinete","mago","paladin","dragon"];
+function mktName(k){
+  if(k === "cup")  return "🧿 CUP";
+  if(k === "gold") return "💰 Oro";
+  if(k === "wood") return "🪵 Madera";
+  if(k === "ore")  return "⛏️ Mineral";
+  const t = TRP[k]; return t ? t.n : k;
+}
 Game.loadMarket = async function(){
   const el = $("#tabMarket"); if(!el) return;
   el.innerHTML = '<p class="empty">Cargando mercado…</p>';
-  el.innerHTML = `<div class="secTitle" style="margin-top:0">🛒 Mercado · Compra/Venta con CUP</div>
-    <div class="sec">Tu CUP: <b id="mCup">${un(this.st ? this.st.cup : 0)}</b></div>
-    <div class="secTitle">Recurso → CUP (vender)</div>
-    <div class="bldGrid">
-      <div class="bldCard"><div class="bldTop"><span class="bldE">💰</span><span class="bldN">Oro</span></div>
-        <div class="bldBody"><input id="mv_gold" type="number" min="0" value="0"></div>
-        <button class="btn" id="mvb_gold">Vender (10 oro → 1 CUP)</button></div>
-      <div class="bldCard"><div class="bldTop"><span class="bldE">🪵</span><span class="bldN">Madera</span></div>
-        <div class="bldBody"><input id="mv_wood" type="number" min="0" value="0"></div>
-        <button class="btn" id="mvb_wood">Vender (20 madera → 1 CUP)</button></div>
-      <div class="bldCard"><div class="bldTop"><span class="bldE">⛏️</span><span class="bldN">Mineral</span></div>
-        <div class="bldBody"><input id="mv_ore" type="number" min="0" value="0"></div>
-        <button class="btn" id="mvb_ore">Vender (30 mineral → 1 CUP)</button></div>
-    </div>
-    <div class="secTitle">CUP → Recurso (comprar)</div>
-    <div class="bldGrid">
-      <div class="bldCard"><div class="bldTop"><span class="bldE">💰</span><span class="bldN">Oro</span></div>
-        <div class="bldBody"><input id="mb_gold" type="number" min="0" value="0"></div>
-        <button class="btn" id="mbb_gold">Comprar (1 CUP → 10 oro)</button></div>
-      <div class="bldCard"><div class="bldTop"><span class="bldE">🪵</span><span class="bldN">Madera</span></div>
-        <div class="bldBody"><input id="mb_wood" type="number" min="0" value="0"></div>
-        <button class="btn" id="mbb_wood">Comprar (1 CUP → 0.05 madera)</button></div>
-      <div class="bldCard"><div class="bldTop"><span class="bldE">⛏️</span><span class="bldN">Mineral</span></div>
-        <div class="bldBody"><input id="mb_ore" type="number" min="0" value="0"></div>
-        <button class="btn" id="mbb_ore">Comprar (1 CUP → ~0.033 mineral)</button></div>
-    </div>
-    <div class="secTitle">Tropas</div>
-    <div class="bldGrid">
-      ${["soldado","arquero","jinete","mago","paladín","dragón"].map(k=>{
-        const tr=TRP[k]||{n:k,e:"⚔️"}; const val={"soldado":50,"arquero":60,"jinete":100,"mago":150,"paladín":200,"dragón":300}[k];
-        return `<div class="bldCard"><div class="bldTop"><span class="bldE">${tr.e||"⚔️"}</span><span class="bldN">${tr.n}</span></div>
-          <div class="bldBody"><div style="color:var(--dim);font-size:12px">Valor ${val} CUP c/u</div>
-            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-              <input id="mts_${k}" type="number" min="0" value="0" style="flex:1">
-              <button class="btn sm" id="mtsb_${k}">Vender</button>
-              <input id="mtb_${k}" type="number" min="0" value="0" style="flex:1">
-              <button class="btn sm" id="mtbb_${k}">Comprar</button>
-            </div></div></div>`;
-      }).join("")}
-    </div>`;
-  const st=this.st; if(st && $("#mCup")) $("#mCup").textContent=un(st.cup||0);
-  document.querySelectorAll("#tabMarket button[id^=mvb_]").forEach(b=>{
-    b.onclick=async()=>{ const rk=b.id.slice(4); const v=Number($("#mv_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_sell_resource",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Vendido. +CUP"); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
-  });
-  document.querySelectorAll("#tabMarket button[id^=mbb_]").forEach(b=>{
-    b.onclick=async()=>{ const rk=b.id.slice(4); const v=Number($("#mb_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_buy_resource",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Comprado."); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
-  });
-  document.querySelectorAll("#tabMarket button[id^=mtsb_]").forEach(b=>{
-    b.onclick=async()=>{ const rk=b.id.slice(5); const v=Number($("#mts_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_sell_troop",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Tropas vendidas. +CUP"); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
-  });
-  document.querySelectorAll("#tabMarket button[id^=mtbb_]").forEach(b=>{
-    b.onclick=async()=>{ const rk=b.id.slice(5); const v=Number($("#mtb_"+rk).value)||0; if(v<=0)return toast("Cantidad inválida"); try{ await sbRpc("wow_market_buy_troop",{p_token:this.me.token,p_key:rk,p_qty:v}); toast("Tropas compradas."); await this.refresh(); await this.loadMarket(); }catch(e){toast(shortMsg(e),true);} };
-  });
+  let d;
+  try{ d = await sbRpc("wow_market_list", { p_token: this.me.token }); }
+  catch(e){ el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
+  this.mkt = d;
+  const st = this.st || {};
+  const inv = { cup: st.cup || 0, gold: st.gold || 0, wood: st.wood || 0, ore: st.ore || 0 };
+  (st.troops || []).forEach(t => inv[t.key] = t.qty);
+  const opts = MKT_ITEMS.map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
+  let html = '<h2 style="margin-top:0;color:var(--gold)">🛒 Mercado</h2>' +
+    '<p class="hint">Publica ofertas y toma las de otros reinos. Comisión actual: <b>' + un(d.fee) + '%</b> (la paga el vendedor). Las ofertas caducan en 1 día.</p>' +
+    '<div class="secTitle">📢 Publicar oferta</div>' +
+    '<div class="mktPub">' +
+      '<label>Doy <select id="mkGive">' + opts + '</select>' +
+        '<input id="mkGiveQty" type="number" min="0" value="0"><button class="btn sm" id="mkGiveMax">MAX</button></label>' +
+      '<label>Pido <select id="mkWant">' + opts + '</select>' +
+        '<input id="mkWantQty" type="number" min="0" value="0"></label>' +
+      '<button class="btn" id="mkPubGo">📢 Publicar oferta</button>' +
+    '</div>' +
+    '<div id="mkMsg" class="notice"></div>';
+  html += '<div class="secTitle">🌍 Ofertas del reino</div>';
+  if(!(d.offers || []).length) html += '<div class="empty">No hay ofertas ahora mismo.</div>';
+  else html += (d.offers || []).map(o =>
+      '<div class="fleet"><span class="fi">🤝</span>' +
+      '<div class="fmain"><div class="ft">' + esc(o.who) + '</div>' +
+      '<div class="fd">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + ' → pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
+      '<div class="fcount"><input id="mkTk_' + o.id + '" type="number" min="0" value="' + o.give_left + '" style="width:78px"> ' +
+      '<button class="btn sm" data-take="' + o.id + '">Tomar</button></div></div>'
+    ).join("");
+  html += '<div class="secTitle">📦 Mis ofertas</div>';
+  if(!(d.mine || []).length) html += '<div class="empty">No tienes ofertas activas.</div>';
+  else html += (d.mine || []).map(o =>
+      '<div class="fleet"><span class="fi">📦</span>' +
+      '<div class="fmain"><div class="ft">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + '</div>' +
+      '<div class="fd">pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
+      '<div class="fcount"><button class="btn sm danger" data-cancel="' + o.id + '">Cancelar</button></div></div>'
+    ).join("");
+  el.innerHTML = html;
+  const maxb = $("#mkGiveMax");
+  if(maxb) maxb.onclick = () => { const k = $("#mkGive").value; $("#mkGiveQty").value = Math.floor(inv[k] || 0); };
+  const gb = $("#mkPubGo");
+  if(gb) gb.onclick = () => this.mktPublish();
+  el.querySelectorAll("button[data-take]").forEach(b => b.onclick = () => this.mktTake(Number(b.dataset.take)));
+  el.querySelectorAll("button[data-cancel]").forEach(b => b.onclick = () => this.mktCancel(Number(b.dataset.cancel)));
+};
+Game.mktPublish = async function(){
+  const g = $("#mkGive").value, w = $("#mkWant").value;
+  const gq = Number($("#mkGiveQty").value) || 0, wq = Number($("#mkWantQty").value) || 0;
+  if(gq <= 0 || wq <= 0) return toast("Pon cantidades mayores que 0.", true);
+  if(g === w) return toast("No puedes cambiar un objeto por sí mismo.", true);
+  try{
+    await sbRpc("wow_market_offer", { p_token: this.me.token, p_give: g, p_give_qty: gq, p_want: w, p_want_qty: wq });
+    toast("📢 Oferta publicada."); await this.refresh();
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game.mktTake = async function(id){
+  const inp = $("#mkTk_" + id);
+  const q = Number(inp && inp.value) || 0;
+  if(q <= 0) return toast("Cantidad inválida.", true);
+  try{
+    const r = await sbRpc("wow_market_take", { p_token: this.me.token, p_id: id, p_qty: q });
+    toast("🤝 Tomaste " + un(r.took) + " · pagaste " + un(r.paid) + ".");
+    await this.refresh();
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game.mktCancel = async function(id){
+  try{
+    await sbRpc("wow_market_cancel", { p_token: this.me.token, p_id: id });
+    toast("Oferta cancelada."); await this.refresh();
+  }catch(e){ toast(shortMsg(e), true); }
 };
