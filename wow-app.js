@@ -94,7 +94,7 @@ const TRP = {
   jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
   mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
   paladin: { n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg", imgH: "img/horda/paladin.jpg" },
-  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg" }
+  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg?v=2" }
 };
 const CTR = {
   soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
