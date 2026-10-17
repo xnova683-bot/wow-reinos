@@ -90,11 +90,11 @@ const BLD = {
 };
 const TRP = {
   soldado: { n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg" },
-  arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg" },
+  arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
   jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg" },
   mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg" },
   paladin: { n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg" },
-  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg" }
+  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg" }
 };
 const CTR = {
   soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
@@ -104,6 +104,12 @@ const CTR = {
   paladin: { up: "🔮 mago y 🐉 dragón",        dn: "🐎 jinete" },
   dragon:  { up: "🗡️ soldado, 🐎 jinete y 🔮 mago", dn: "🏹 arquero y 🛡️ paladín" }
 };
+
+/* imagen de una tropa/edificio según tu facción: Horda usa imgH si existe; si no (o Alianza), usa img */
+function facImg(m){
+  if(m && m.imgH && Game.me && Game.me.faction === "horda") return m.imgH;
+  return m ? m.img : null;
+}
 
 /* posiciones FIJAS de los 20 castillos sobre el mapa (x, y) */
 const SLOT_POS = [
@@ -410,8 +416,9 @@ const Game = {
                  : (b.prod > 0 ? m.p.replace("{v}", un(b.prod)) : m.d);
       const noG = s.gold < b.cost.gold, noW = s.wood < b.cost.wood, noO = s.ore < b.cost.ore;
       const can = !busy && !noG && !noW && !noO;
+      const img = facImg(m);
       const body = `<div class="cardTop">
-          ${m.img ? "" : `<span class="emoji">${m.e}</span>`}
+          ${img ? "" : `<span class="emoji">${m.e}</span>`}
           <div><div class="bName">${m.n}<span class="lvl">Nv. ${b.level}</span></div>
           <div class="bDesc">${prod}</div></div>
         </div>
@@ -424,8 +431,8 @@ const Game = {
           </div>
           <button class="btn sm" data-up="${b.key}" ${can ? "" : "disabled"}>⬆️ Subir</button>
         </div>`;
-      html += m.img
-        ? `<div class="card hasPic"><div class="picBody">${body}</div><div class="picSide"><img class="troopImg" src="${m.img}" alt="${m.n}"></div></div>`
+      html += img
+        ? `<div class="card hasPic"><div class="picBody">${body}</div><div class="picSide"><img class="troopImg" src="${img}" alt="${m.n}"${m.img && img !== m.img ? ` onerror="this.onerror=null;this.src='${m.img}';"` : ""}></div></div>`
         : `<div class="card">${body}</div>`;
     });
     html += "</div>";
@@ -456,8 +463,9 @@ const Game = {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
       const c = CTR[t.key] || { up: "—", dn: "—" };
       const noG = s.gold < t.cost.gold, noW = s.wood < t.cost.wood, noO = s.ore < t.cost.ore;
+      const img = facImg(m);
       const head = `<div class="cardTop">
-          ${m.img ? "" : `<span class="emoji">${m.e}</span>`}
+          ${img ? "" : `<span class="emoji">${m.e}</span>`}
           <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
           <div class="bDesc">${m.d}</div>
           <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
@@ -476,8 +484,8 @@ const Game = {
           <input id="qty_${t.key}" type="number" min="1" max="100000" value="" placeholder="Cantidad" ${(!unlocked || busy) ? "disabled" : ""}>
           <button class="btn sm" data-tr="${t.key}" ${(!unlocked || busy) ? "disabled" : ""}>⚔️ Entrenar</button>
         </div>`;
-      html += m.img
-        ? `<div class="card hasPic"><div class="picBody">${head}</div><div class="picSide"><img class="troopImg" src="${m.img}" alt="${m.n}"></div></div>`
+      html += img
+        ? `<div class="card hasPic"><div class="picBody">${head}</div><div class="picSide"><img class="troopImg" src="${img}" alt="${m.n}"${m.img && img !== m.img ? ` onerror="this.onerror=null;this.src='${m.img}';"` : ""}></div></div>`
         : `<div class="card">${head}</div>`;
     });
     html += "</div>";
