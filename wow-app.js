@@ -657,15 +657,17 @@ const Game = {
     const mine = (this.mapList || []).find(x => x.me);
     return mine ? mapPosNode(mine.pos) : null;
   },
+  _nodePos(node){
+    if(node === 0) return 0;
+    if(node === 21) return 20;
+    return node >= 22 ? node - 2 : node - 1;
+  },
   showMarchFx(fromNode, toNode, icon, cls){
     const layer = document.getElementById("armyLayer");
     if(!layer || fromNode == null || toNode == null) return;
     const reach = mapPathNodes(fromNode, toNode).map(mapNodePct);
-    let dist = 0;
-    for(let i = 0; i < reach.length - 1; i++){
-      dist += Math.hypot((reach[i + 1][0] - reach[i][0]) / 100 * MAPW, (reach[i + 1][1] - reach[i][1]) / 100 * MAPH);
-    }
-    const ms = Math.max(2600, Math.min(6500, dist / 380 * 1000));
+    const travel = Math.max(20, 15 + 3 * Math.abs(this._nodePos(fromNode) - this._nodePos(toNode)));
+    const ms = travel * 1000;
     const el = document.createElement("div");
     el.className = "mArmy fx mine" + (cls ? " " + cls : "");
     el.textContent = icon || "⚔️";
