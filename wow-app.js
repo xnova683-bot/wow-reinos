@@ -179,8 +179,7 @@ function mapPosNode(pos){
   const c = Math.floor(p / N), s = p % N;
   return c === 0 ? (s + 1) : (22 + s);
 }
-function mapPathNodes(fromPos, toPos){
-  const from = mapPosNode(fromPos), to = mapPosNode(toPos);
+function mapNodePath(from, to){
   if(from === to) return [from];
   const prev = { [from]: -1 }, q = [from];
   while(q.length){
@@ -192,6 +191,9 @@ function mapPathNodes(fromPos, toPos){
   while(c !== -1 && c !== undefined){ path.unshift(c); c = prev[c]; }
   if(path[0] !== from) return [from, to];
   return path;
+}
+function mapPathNodes(fromPos, toPos){
+  return mapNodePath(mapPosNode(fromPos), mapPosNode(toPos));
 }
 function mapNodePct(idx){
   const xy = mapNodeXY(idx);
@@ -613,7 +615,7 @@ const Game = {
   },
   renderMarches(){
     const layer = document.getElementById("armyLayer"); if(!layer) return;
-    layer.querySelectorAll(".mArmy").forEach(e => e.remove());
+    layer.querySelectorAll(".mArmy:not(.fx)").forEach(e => e.remove());
     this._marchTokens = [];
     (this.marches || []).forEach((m, idx) => {
       if(m.from == null || m.to == null) return;
@@ -675,7 +677,7 @@ const Game = {
   showMarchFx(fromNode, toNode, icon, cls){
     const layer = document.getElementById("armyLayer");
     if(!layer || fromNode == null || toNode == null) return;
-    const reach = mapPathNodes(fromNode, toNode).map(mapNodePct);
+    const reach = mapNodePath(fromNode, toNode).map(mapNodePct);
     const travel = Math.max(20, 15 + 3 * Math.abs(this._nodePos(fromNode) - this._nodePos(toNode)));
     const ms = travel * 1000;
     const el = document.createElement("div");
