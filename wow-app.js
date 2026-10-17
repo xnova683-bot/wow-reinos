@@ -1525,6 +1525,7 @@ Game.thrClaim = async function(node){
     modalClose();
     toast("💰 Reclamado: " + (parts.length ? parts.join(", ") : "nada"));
     await this.refresh(); await this.loadMap();
+    this.showMarchFx(node, this._myNode(), "💰", "back");
   }catch(e){ toast(shortMsg(e), true); }
 };
 
