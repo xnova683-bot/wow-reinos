@@ -89,7 +89,7 @@ const BLD = {
   muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino" }
 };
 const TRP = {
-  soldado: { n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg" },
+  soldado: { n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
   arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
   jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
   mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
