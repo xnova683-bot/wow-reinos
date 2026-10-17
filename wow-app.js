@@ -657,16 +657,21 @@ const Game = {
     const mine = (this.mapList || []).find(x => x.me);
     return mine ? mapPosNode(mine.pos) : null;
   },
-  showMarchFx(fromNode, toNode, icon, cls, dur){
+  showMarchFx(fromNode, toNode, icon, cls){
     const layer = document.getElementById("armyLayer");
     if(!layer || fromNode == null || toNode == null) return;
     const reach = mapPathNodes(fromNode, toNode).map(mapNodePct);
+    let dist = 0;
+    for(let i = 0; i < reach.length - 1; i++){
+      dist += Math.hypot((reach[i + 1][0] - reach[i][0]) / 100 * MAPW, (reach[i + 1][1] - reach[i][1]) / 100 * MAPH);
+    }
+    const ms = Math.max(2600, Math.min(6500, dist / 380 * 1000));
     const el = document.createElement("div");
     el.className = "mArmy fx mine" + (cls ? " " + cls : "");
     el.textContent = icon || "⚔️";
     layer.appendChild(el);
     this._fxTokens = this._fxTokens || [];
-    this._fxTokens.push({ el, pts: reach, depart: Date.now(), arrive: Date.now() + (dur || 2400), seed: Math.random() * 3 });
+    this._fxTokens.push({ el, pts: reach, depart: Date.now(), arrive: Date.now() + ms, seed: Math.random() * 3 });
     if(!this._mapRAF) this.startMarchLoop();
   },
   openProfile(pos){
@@ -1418,7 +1423,7 @@ Game.thrRein = async function(node){
     modalClose();
     toast("🛡️ Guarnición reforzada.");
     await this.refresh(); await this.loadMap();
-    this.showMarchFx(this._myNode(), node, "🛡️", "rein", 1900);
+    this.showMarchFx(this._myNode(), node, "🛡️", "rein");
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game._thrWithTroops = function(){
@@ -1439,7 +1444,7 @@ Game.thrWith = async function(node){
     modalClose();
     toast(r.empty ? "➖ Tropas retiradas. ¡La guarnición quedó vacía!" : "➖ Tropas retiradas a tu reino.");
     await this.refresh(); await this.loadMap();
-    this.showMarchFx(node, this._myNode(), "🚩", "back", 1900);
+    this.showMarchFx(node, this._myNode(), "🚩", "back");
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game.thrClaim = async function(node){
