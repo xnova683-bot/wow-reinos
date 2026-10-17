@@ -2015,6 +2015,21 @@ begin
 end $$;
 grant execute on function public.wow_throne_claim(text, integer) to anon, authenticated;
 
+-- ---- ajuste admin del tributo de tronos ----
+create or replace function public.wow_admin_setthrone(p_token text, p_pct numeric)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if not u.is_admin then raise exception 'No tienes permisos de administrador.'; end if;
+  if p_pct is null or p_pct < 0 or p_pct > 90 then raise exception 'El tributo debe estar entre 0 y 90.'; end if;
+  insert into wow_settings(key, val) values ('throne_share', p_pct::text)
+    on conflict (key) do update set val = excluded.val;
+  return jsonb_build_object('ok', true, 'share', p_pct);
+end $$;
+grant execute on function public.wow_admin_setthrone(text, numeric) to anon, authenticated;
+
 -- ================================================================
 -- Integracion con el mercado: ademas de la comision, se abona el
 -- tributo del trono (por defecto 1% del valor del trato) al tesoro
