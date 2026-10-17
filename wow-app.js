@@ -519,6 +519,8 @@ const Game = {
   async loadMap(){
     try{
       this.mapList = await sbRpc("wow_map", { p_token: this.me.token }) || [];
+      try{ const ti = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = (ti && ti.thrones) || []; }
+      catch(_){ this._thrones = this._thrones || []; }
       this.renderMap();
     }catch(e){ toast(shortMsg(e), true); }
   },
@@ -549,16 +551,20 @@ const Game = {
         }
       }
     }
-    const thrones = [
+    const thrones = (this._thrones && this._thrones.length) ? this._thrones : [
       { node: 0,  name: "TRONO DE AZEROTH" },
       { node: 21, name: "TRONO DE KALIMDOR" }
     ];
     let throneHtml = "";
     thrones.forEach(t => {
       const pc = mapNodePct(t.node);
-      throneHtml += `<div class="mPin throne" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
-          <div class="mPinCastle">🏯</div>
-          <div class="mPinName">${t.name}</div>
+      const owned = !!t.holder;
+      const crown = owned ? "👑" : "🏯";
+      const label = owned ? esc(t.holder_name || "?") : "Libre";
+      throneHtml += `<div class="mPin throne${owned ? " taken" : ""}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
+          <div class="mPinCastle">${crown}</div>
+          <div class="mPinName">${esc(t.name)}</div>
+          <div class="mPinTag">${label}</div>
         </div>`;
     });
     $("#tabMap").innerHTML = `
