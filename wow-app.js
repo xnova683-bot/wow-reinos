@@ -501,14 +501,14 @@ const Game = {
     try{
       const list = await sbRpc("wow_leaderboard", { p_token: this.me.token });
       this.rankLoaded = true;
-      let html = '<table class="rank"><tr><th>#</th><th>Reino</th><th>Bando</th><th>Puntos</th><th>Nv.</th><th>Tropas</th></tr>';
+      let html = '<table class="rank"><tr><th>#</th><th>Reino</th><th>Bando</th><th>Puntos</th><th>Nv.</th><th>Tropas</th><th>👑</th></tr>';
       (list || []).forEach((r, i) => {
         const cls = r.me ? ' class="me"' : "";
         const fac = r.faction === "horda"
           ? '<span class="rankFac" style="background:var(--red)">Horda</span>'
           : '<span class="rankFac" style="background:var(--blue)">Alianza</span>';
         html += `<tr${cls}><td>${i + 1}</td><td>${r.name}${r.me ? " (tú)" : ""}</td><td>${fac}</td>
-          <td><b>${un(r.points)}</b></td><td>${un(r.level_sum)}</td><td>${un(r.troops)}</td></tr>`;
+          <td><b>${un(r.points)}</b></td><td>${un(r.level_sum)}</td><td>${un(r.troops)}</td><td>${r.thrones ? "👑 " + un(r.thrones) : "—"}</td></tr>`;
       });
       html += "</table>";
       $("#tabRank").innerHTML = html || '<div class="empty">Aún no hay reinos en el ranking.</div>';
@@ -1185,6 +1185,18 @@ Game.mktTake = async function(id){
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
 };
+Game.thrEvent = function(h){
+  const who = esc(h.actor_name || "?");
+  const t = hora(h.created);
+  let txt = "";
+  if(h.kind === "take") txt = "🏯 <b>" + who + "</b> ocupó el trono libre.";
+  else if(h.kind === "conquest") txt = "⚔️ <b>" + who + "</b> conquistó el trono" + (h.detail && h.detail.from ? " (era de " + esc(h.detail.from) + ")" : "") + ".";
+  else if(h.kind === "defended") txt = "🛡️ La defensa rechazó a <b>" + who + "</b>.";
+  else if(h.kind === "reinforce") txt = "➕ <b>" + who + "</b> reforzó la guarnición.";
+  else if(h.kind === "claim") txt = "💰 <b>" + who + "</b> reclamó el tesoro.";
+  else txt = "• " + esc(h.kind);
+  return txt + ' <span style="opacity:.6">· ' + t + '</span>';
+};
 Game.openThrone = async function(node){
   try{
     const r = await sbRpc("wow_throne_info", { p_token: this.me.token });
@@ -1209,6 +1221,11 @@ Game.openThrone = async function(node){
         if(t.treasure && Object.keys(t.treasure).length) body += '<button class="btn" onclick="Game.thrClaim('+node+')">💰 Reclamar tesoro</button>';
       }else{
         body += '<button class="btn" onclick="Game.thrAtk('+node+')">⚔️ Atacar para conquistar</button>';
+      }
+      if(t.history && t.history.length){
+        body += '<div class="muted" style="margin-top:12px">Historial</div><div class="thrHist">';
+        t.history.forEach(h => body += '<div class="thrEvent">' + this.thrEvent(h) + '</div>');
+        body += '</div>';
       }
     }
     if(!t || t.holder !== me.id){

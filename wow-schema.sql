@@ -1853,8 +1853,18 @@ create table if not exists public.wow_throne_treasure(
   qty numeric(16,2) not null default 0,
   primary key (node, key)
 );
+create table if not exists public.wow_throne_history(
+  id bigserial primary key,
+  node integer not null,
+  kind text not null,
+  actor text,
+  actor_name text not null default '',
+  detail jsonb not null default '{}'::jsonb,
+  created bigint not null default 0
+);
 alter table public.wow_thrones enable row level security;
 alter table public.wow_throne_treasure enable row level security;
+alter table public.wow_throne_history enable row level security;
 
 insert into public.wow_thrones(node, name) values (0, 'TRONO DE AZEROTH'), (21, 'TRONO DE KALIMDOR')
   on conflict (node) do nothing;
@@ -1892,10 +1902,21 @@ begin
 end $$;
 revoke all on function public._wow_throne_check(jsonb) from public, anon, authenticated;
 
+create or replace function public._wow_throne_log(p_node integer, p_kind text, p_actor text, p_actor_name text, p_detail jsonb)
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare ms bigint := (extract(epoch from now())*1000)::bigint;
+begin
+  insert into wow_throne_history(node, kind, actor, actor_name, detail, created)
+    values (p_node, p_kind, p_actor, coalesce(p_actor_name,''), coalesce(p_detail,'{}'::jsonb), ms);
+  delete from wow_throne_history where node = p_node
+    and id not in (select id from wow_throne_history where node = p_node order by id desc limit 40);
+end $$;
+revoke all on function public._wow_throne_log(integer, text, text, text, jsonb) from public, anon, authenticated;
+
 -- ---- estado de los tronos ----
 create or replace function public.wow_throne_info(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text;
+declare u wow_users; t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text; hist jsonb;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -1905,12 +1926,16 @@ begin
     select coalesce(sum((value)::numeric),0) into g from jsonb_each_text(t.garrison);
     select coalesce(jsonb_object_agg(key, qty), '{}'::jsonb) into tr
       from wow_throne_treasure where node = t.node and qty > 0;
+    select coalesce(jsonb_agg(jsonb_build_object(
+        'kind', h.kind, 'who', h.actor_name, 'who_id', h.actor,
+        'detail', h.detail, 'created', h.created) order by h.id desc), '[]'::jsonb)
+      into hist from (select * from wow_throne_history where node = t.node order by id desc limit 8) h;
     fac := null;
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'holder', t.holder, 'holder_name', t.holder_name,
       'faction', fac, 'garrison', coalesce(g,0), 'since', t.since_ms,
-      'mine', (t.holder = u.id), 'treasure', tr);
+      'mine', (t.holder = u.id), 'treasure', tr, 'history', hist);
   end loop;
   return jsonb_build_object('ok', true, 'share', _wow_throne_pct(), 'thrones', arr);
 end $$;
@@ -1921,7 +1946,7 @@ create or replace function public.wow_throne_attack(p_token text, p_node integer
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
   u wow_users; t wow_thrones; ms bigint; army jsonb; sim jsonb; surv jsonb;
-  z record; a_forge int; a_fort int;
+  z record; a_forge int; a_fort int; d_forge int; d_fort int; d_wall int; prev text;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -1939,20 +1964,27 @@ begin
   -- trono libre/vacio: se ocupa sin lucha
   if coalesce(t.holder,'') = '' or t.garrison = '{}'::jsonb then
     update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = army where node = t.node;
+    perform _wow_throne_log(t.node, 'take', u.id, u.name, jsonb_build_object('garrison', army));
     insert into wow_reports(owner, kind, data, created)
       values (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'battle',null,'created',ms), ms);
     return jsonb_build_object('ok', true, 'took', true, 'free', true, 'garrison', army);
   end if;
-  -- batalla contra la guarnicion
+  -- batalla contra la guarnicion (defiende con muralla/herreria/fortaleza del duenio)
+  prev := t.holder_name;
   a_forge := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'herreria'), 0);
   a_fort  := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'fortaleza'), 0);
-  sim := _wow_sim(army, t.garrison, 0, (ms/1000) + t.node*131, 1 + 0.04*a_forge, 1, 1 + 0.04*a_fort, 1);
+  d_forge := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'herreria'), 0);
+  d_fort  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'fortaleza'), 0);
+  d_wall  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'muralla'), 0);
+  sim := _wow_sim(army, t.garrison, d_wall, (ms/1000) + t.node*131,
+                  1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort);
   if (sim->>'winner') = 'attacker' then
     surv := '{}'::jsonb;
     for z in select key, value from jsonb_each_text(sim->'a_left') loop
       if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
     end loop;
     update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = surv where node = t.node;
+    perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
     insert into wow_reports(owner, kind, data, created) values
       (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'battle',sim,'created',ms), ms),
       (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',true,'battle',sim,'created',ms), ms);
@@ -1963,6 +1995,7 @@ begin
       if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
     end loop;
     update wow_thrones set garrison = surv where node = t.node;
+    perform _wow_throne_log(t.node, 'defended', u.id, u.name, jsonb_build_object('holder', prev));
     insert into wow_reports(owner, kind, data, created) values
       (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',false,'battle',sim,'created',ms), ms),
       (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',false,'battle',sim,'created',ms), ms);
@@ -1991,6 +2024,7 @@ begin
     newg := jsonb_set(newg, array[z.key], to_jsonb(coalesce((newg->>z.key)::int,0) + z.value), true);
   end loop;
   update wow_thrones set garrison = newg where node = t.node;
+  perform _wow_throne_log(t.node, 'reinforce', u.id, u.name, jsonb_build_object('troops', army));
   return jsonb_build_object('ok', true, 'garrison', newg);
 end $$;
 grant execute on function public.wow_throne_reinforce(text, integer, jsonb) to anon, authenticated;
@@ -2011,6 +2045,7 @@ begin
     msg := msg || jsonb_build_object(r.key, r.qty);
   end loop;
   delete from wow_throne_treasure where node = p_node;
+  if msg <> '{}'::jsonb then perform _wow_throne_log(p_node, 'claim', u.id, u.name, msg); end if;
   return jsonb_build_object('ok', true, 'claimed', msg);
 end $$;
 grant execute on function public.wow_throne_claim(text, integer) to anon, authenticated;
@@ -2101,3 +2136,28 @@ begin
   return jsonb_build_object('ok', true, 'took', take, 'paid', want_part, 'fee', fee, 'net', net, 'throne_share', share);
 end $$;
 grant execute on function public.wow_market_take(text, bigint, numeric) to anon, authenticated;
+
+-- ================================================================
+-- Ranking: agrega el numero de tronos que controla cada reino.
+-- ================================================================
+create or replace function public.wow_leaderboard(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'name', w.name, 'faction', w.faction, 'me', (w.id = u.id),
+      'points', coalesce((select sum(g.level) from wow_buildings g where g.owner_id = w.id),0) * 100
+                + coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0),
+      'level_sum', coalesce((select sum(g.level) from wow_buildings g where g.owner_id = w.id),0),
+      'troops', coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0),
+      'thrones', (select count(*) from wow_thrones th where th.holder = w.id))
+    order by (select count(*) from wow_thrones th where th.holder = w.id) desc,
+             coalesce((select sum(g.level) from wow_buildings g where g.owner_id = w.id),0) * 100
+              + coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0) desc), '[]'::jsonb)
+  into out
+  from wow_users w where w.active and not coalesce(w.is_admin,false);
+  return out;
+end $$;
+grant execute on function public.wow_leaderboard(text) to anon, authenticated;
