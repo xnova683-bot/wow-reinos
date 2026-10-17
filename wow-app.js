@@ -1050,7 +1050,7 @@ const Game = {
     try{
       this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token });
       try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
-      try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; }catch(_){ this.throneShare = this.throneShare; }
+      try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; this.throneRates = (g && g.rates) || this.throneRates; }catch(_){ this.throneShare = this.throneShare; }
     }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
@@ -1080,7 +1080,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · ' + hora(d.now) + '</span>' +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
@@ -1091,22 +1091,33 @@ const Game = {
   admFee(){
     const f = (this.mktFee != null) ? this.mktFee : 20;
     const s = (this.throneShare != null) ? this.throneShare : 1;
+    const rt = this.throneRates || { gold: 100, wood: 100, ore: 100 };
     modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Ajustes de economía</h2>' +
       '<p class="hint">La <b>comisión</b> se descuenta de lo que recibe el vendedor y se destruye. El <b>tributo</b> es el % del valor del trato que va al tesoro de cada trono con dueño (se descuenta de la comisión).</p>' +
       '<div class="admInputs"><label>Comisión mercado (%)<input id="admFeeIn" type="number" min="0" max="90" value="' + f + '"></label>' +
       '<label>Tributo tronos (%)<input id="admThrIn" type="number" min="0" max="90" value="' + s + '"></label></div>' +
+      '<p class="hint" style="margin-top:12px">Producción de recursos de cada trono con dueño (por hora, se acumula en el tesoro).</p>' +
+      '<div class="admInputs"><label>Oro /h<input id="admThrG" type="number" min="0" max="100000" value="' + un(rt.gold) + '"></label>' +
+      '<label>Madera /h<input id="admThrW" type="number" min="0" max="100000" value="' + un(rt.wood) + '"></label>' +
+      '<label>Mineral /h<input id="admThrO" type="number" min="0" max="100000" value="' + un(rt.ore) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
     $("#admGo").onclick = async () => {
       const v = Number($("#admFeeIn").value);
       const sv = Number($("#admThrIn").value);
+      const rg = Number($("#admThrG").value);
+      const rw = Number($("#admThrW").value);
+      const ro = Number($("#admThrO").value);
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo debe estar entre 0 y 90.", "danger");
+      if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción debe ser 0 o mayor.", "danger");
       $("#admGo").disabled = true;
       try{
         await sbRpc("wow_admin_setfee", { p_token: this.me.token, p_fee: v });
         await sbRpc("wow_admin_setthrone", { p_token: this.me.token, p_pct: sv });
-        this.mktFee = v; this.throneShare = sv; modalClose(); toast("Ajustes guardados."); this.loadAdmin();
+        await sbRpc("wow_admin_setthrones", { p_token: this.me.token, p_gold: rg, p_wood: rw, p_ore: ro });
+        this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro };
+        modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
   },
@@ -1335,6 +1346,7 @@ Game.openThrone = async function(node){
         for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
       }else body += '<div class="muted">Sin tesoro por ahora.</div>';
       body += '<div class="row"><span>Tributo</span><span>' + un(r.share||1) + '% del valor del trato</span></div>';
+      if(r.rates) body += '<div class="muted" style="margin-top:4px">Genera +' + un(r.rates.gold||0) + ' 💰 oro · +' + un(r.rates.wood||0) + ' 🪵 madera · +' + un(r.rates.ore||0) + ' ⛏️ mineral por hora (se acumula en el tesoro).</div>';
     }
     if(!own){
       body += '<div class="muted" style="margin-top:10px">Enviar desde tu reino</div>';

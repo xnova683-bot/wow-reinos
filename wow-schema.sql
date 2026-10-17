@@ -1845,8 +1845,10 @@ create table if not exists public.wow_thrones(
   holder text,
   holder_name text not null default '',
   since_ms bigint not null default 0,
-  garrison jsonb not null default '{}'::jsonb
+  garrison jsonb not null default '{}'::jsonb,
+  accrue_ms bigint not null default 0
 );
+alter table public.wow_thrones add column if not exists accrue_ms bigint not null default 0;
 create table if not exists public.wow_throne_treasure(
   node integer not null,
   key text not null,
@@ -1877,6 +1879,10 @@ insert into public.wow_thrones(node, name) values (0, 'TRONO DE AZEROTH'), (21, 
   on conflict (node) do nothing;
 insert into public.wow_settings(key, val) values ('throne_share', '1')
   on conflict (key) do nothing;
+-- produccion de recursos de cada trono con duenio (por hora)
+insert into public.wow_settings(key, val) values
+  ('throne_gold_h', '100'), ('throne_wood_h', '100'), ('throne_ore_h', '100')
+  on conflict (key) do nothing;
 
 -- ---- helpers internos ----
 create or replace function public._wow_throne_pct()
@@ -1893,6 +1899,38 @@ begin
     on conflict (node, key) do update set qty = wow_throne_treasure.qty + excluded.qty;
 end $$;
 revoke all on function public._wow_throne_add(integer, text, numeric) from public, anon, authenticated;
+
+-- ---- produccion de recursos por hora (configurable por el admin) ----
+create or replace function public._wow_throne_rate(p_key text)
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select coalesce((select val::numeric from wow_settings where key = p_key), 100)
+$$;
+revoke all on function public._wow_throne_rate(text) from public, anon, authenticated;
+
+-- abona al tesoro los recursos generados por cada trono con duenio desde el ultimo abono
+create or replace function public._wow_throne_accrue()
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare
+  ms bigint; t record; hrs numeric; rg numeric; rw numeric; ro numeric;
+begin
+  ms := (extract(epoch from now())*1000)::bigint;
+  rg := _wow_throne_rate('throne_gold_h');
+  rw := _wow_throne_rate('throne_wood_h');
+  ro := _wow_throne_rate('throne_ore_h');
+  for t in select * from wow_thrones where holder is not null for update loop
+    if coalesce(t.accrue_ms,0) <= 0 then
+      update wow_thrones set accrue_ms = ms where node = t.node;
+      continue;
+    end if;
+    hrs := (ms - t.accrue_ms)::numeric / 3600000.0;
+    if hrs <= 0 then continue; end if;
+    if rg > 0 then perform _wow_throne_add(t.node, 'gold', round(rg * hrs, 2)); end if;
+    if rw > 0 then perform _wow_throne_add(t.node, 'wood', round(rw * hrs, 2)); end if;
+    if ro > 0 then perform _wow_throne_add(t.node, 'ore',  round(ro * hrs, 2)); end if;
+    update wow_thrones set accrue_ms = ms where node = t.node;
+  end loop;
+end $$;
+revoke all on function public._wow_throne_accrue() from public, anon, authenticated;
 
 create or replace function public._wow_throne_check(p_troops jsonb)
 returns jsonb language plpgsql immutable as $$
@@ -1951,6 +1989,7 @@ begin
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   perform _wow_resolve();
   u := _wow_tick(u.id);
+  perform _wow_throne_accrue();
   for t in select * from wow_thrones order by node loop
     select coalesce(sum((value)::numeric),0) into g from jsonb_each_text(t.garrison);
     select coalesce(jsonb_object_agg(key, qty), '{}'::jsonb) into tr
@@ -1966,7 +2005,10 @@ begin
       'faction', fac, 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
       'mine', (t.holder = u.id), 'treasure', tr, 'history', hist);
   end loop;
-  return jsonb_build_object('ok', true, 'share', _wow_throne_pct(), 'thrones', arr);
+  return jsonb_build_object('ok', true, 'share', _wow_throne_pct(), 'thrones', arr,
+    'rates', jsonb_build_object('gold', _wow_throne_rate('throne_gold_h'),
+                                'wood', _wow_throne_rate('throne_wood_h'),
+                                'ore',  _wow_throne_rate('throne_ore_h')));
 end $$;
 grant execute on function public.wow_throne_info(text) to anon, authenticated;
 
@@ -1992,7 +2034,7 @@ begin
   end loop;
   -- trono libre/vacio: se ocupa sin lucha
   if coalesce(t.holder,'') = '' or t.garrison = '{}'::jsonb then
-    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = army where node = t.node;
+    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = army, accrue_ms = ms where node = t.node;
     perform _wow_throne_log(t.node, 'take', u.id, u.name, jsonb_build_object('garrison', army));
     perform _wow_event('throne', '🏯 ' || u.name || ' ha ocupado ' || t.name || '.');
     insert into wow_reports(owner, kind, data, created)
@@ -2013,7 +2055,7 @@ begin
     for z in select key, value from jsonb_each_text(sim->'a_left') loop
       if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
     end loop;
-    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = surv where node = t.node;
+    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = surv, accrue_ms = ms where node = t.node;
     perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
     perform _wow_event('throne', '👑 ' || u.name || ' ha conquistado ' || t.name || ' (antes de ' || coalesce(prev, 'nadie') || ').');
     insert into wow_reports(owner, kind, data, created) values
@@ -2105,6 +2147,7 @@ begin
   select * into t from wow_thrones where node = p_node for update;
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder <> u.id then raise exception 'No controlas ese trono.'; end if;
+  perform _wow_throne_accrue();
   for r in select key, qty from wow_throne_treasure where node = p_node and qty > 0 loop
     perform _wow_mkt_add(u.id, r.key, r.qty);
     msg := msg || jsonb_build_object(r.key, r.qty);
@@ -2129,6 +2172,26 @@ begin
   return jsonb_build_object('ok', true, 'share', p_pct);
 end $$;
 grant execute on function public.wow_admin_setthrone(text, numeric) to anon, authenticated;
+
+-- ---- ajuste admin de la produccion de recursos de los tronos (por hora) ----
+create or replace function public.wow_admin_setthrones(p_token text, p_gold numeric, p_wood numeric, p_ore numeric)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if not u.is_admin then raise exception 'No tienes permisos de administrador.'; end if;
+  if p_gold is null or p_wood is null or p_ore is null
+     or p_gold < 0 or p_wood < 0 or p_ore < 0
+     or p_gold > 100000 or p_wood > 100000 or p_ore > 100000 then
+    raise exception 'La producción debe estar entre 0 y 100000 por hora.';
+  end if;
+  insert into wow_settings(key, val) values ('throne_gold_h', p_gold::text) on conflict (key) do update set val = excluded.val;
+  insert into wow_settings(key, val) values ('throne_wood_h', p_wood::text) on conflict (key) do update set val = excluded.val;
+  insert into wow_settings(key, val) values ('throne_ore_h',  p_ore::text)  on conflict (key) do update set val = excluded.val;
+  return jsonb_build_object('ok', true, 'rates', jsonb_build_object('gold', p_gold, 'wood', p_wood, 'ore', p_ore));
+end $$;
+grant execute on function public.wow_admin_setthrones(text, numeric, numeric, numeric) to anon, authenticated;
 
 -- ================================================================
 -- Integracion con el mercado: ademas de la comision, se abona el
