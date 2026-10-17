@@ -603,7 +603,7 @@ const Game = {
   },
   renderMarches(){
     const layer = document.getElementById("armyLayer"); if(!layer) return;
-    layer.innerHTML = "";
+    layer.querySelectorAll(".mArmy").forEach(e => e.remove());
     this._marchTokens = [];
     (this.marches || []).forEach((m, idx) => {
       if(m.from == null || m.to == null) return;
@@ -630,6 +630,19 @@ const Game = {
         const bob = (Math.sin(now / 170 + tk.seed) * 2.2).toFixed(1);
         tk.el.style.transform = "translate(-50%,-50%) translateY(" + bob + "px)";
       });
+      const fx = this._fxTokens || [];
+      for(let i = fx.length - 1; i >= 0; i--){
+        const tk = fx[i];
+        const total = tk.arrive - tk.depart;
+        let p = total > 0 ? (now - tk.depart) / total : 1;
+        p = Math.max(0, Math.min(1, p));
+        const pt = mapPointAt(tk.pts, p);
+        tk.el.style.left = pt[0].toFixed(2) + "%";
+        tk.el.style.top = pt[1].toFixed(2) + "%";
+        const bob = (Math.sin(now / 150 + tk.seed) * 2.4).toFixed(1);
+        tk.el.style.transform = "translate(-50%,-50%) translateY(" + bob + "px)";
+        if(p >= 1){ tk.el.remove(); fx.splice(i, 1); }
+      }
       this._mapRAF = requestAnimationFrame(step);
     };
     step();
@@ -640,6 +653,22 @@ const Game = {
     this._marchTimer = setInterval(() => { if(this.tab === "map") this.loadMarches(); }, 5000);
   },
   stopMarchPoll(){ if(this._marchTimer){ clearInterval(this._marchTimer); this._marchTimer = null; } },
+  _myNode(){
+    const mine = (this.mapList || []).find(x => x.me);
+    return mine ? mapPosNode(mine.pos) : null;
+  },
+  showMarchFx(fromNode, toNode, icon, cls, dur){
+    const layer = document.getElementById("armyLayer");
+    if(!layer || fromNode == null || toNode == null) return;
+    const reach = mapPathNodes(fromNode, toNode).map(mapNodePct);
+    const el = document.createElement("div");
+    el.className = "mArmy fx mine" + (cls ? " " + cls : "");
+    el.textContent = icon || "⚔️";
+    layer.appendChild(el);
+    this._fxTokens = this._fxTokens || [];
+    this._fxTokens.push({ el, pts: reach, depart: Date.now(), arrive: Date.now() + (dur || 2400), seed: Math.random() * 3 });
+    if(!this._mapRAF) this.startMarchLoop();
+  },
   openProfile(pos){
     const r = (this.mapList || []).find(x => x.pos === pos); if(!r) return;
     const fac = r.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
@@ -1378,6 +1407,7 @@ Game.thrAtk = async function(node){
     modalClose();
     toast(r.free ? "🏯 ¡Ocupaste el trono!" : (r.win ? "👑 ¡Conquistaste el trono!" : "❌ La guarnición resistió."));
     await this.refresh(); await this.loadMap();
+    this.showMarchFx(this._myNode(), node, "⚔️", "atk");
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game.thrRein = async function(node){
@@ -1388,6 +1418,7 @@ Game.thrRein = async function(node){
     modalClose();
     toast("🛡️ Guarnición reforzada.");
     await this.refresh(); await this.loadMap();
+    this.showMarchFx(this._myNode(), node, "🛡️", "rein", 1900);
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game._thrWithTroops = function(){
@@ -1408,6 +1439,7 @@ Game.thrWith = async function(node){
     modalClose();
     toast(r.empty ? "➖ Tropas retiradas. ¡La guarnición quedó vacía!" : "➖ Tropas retiradas a tu reino.");
     await this.refresh(); await this.loadMap();
+    this.showMarchFx(node, this._myNode(), "🚩", "back", 1900);
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game.thrClaim = async function(node){
