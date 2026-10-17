@@ -1267,6 +1267,7 @@ Game.thrEvent = function(h){
   else if(h.kind === "conquest") txt = "⚔️ <b>" + who + "</b> conquistó el trono" + (h.detail && h.detail.from ? " (era de " + esc(h.detail.from) + ")" : "") + ".";
   else if(h.kind === "defended") txt = "🛡️ La defensa rechazó a <b>" + who + "</b>.";
   else if(h.kind === "reinforce") txt = "➕ <b>" + who + "</b> reforzó la guarnición.";
+  else if(h.kind === "withdraw") txt = "➖ <b>" + who + "</b> retiró tropas de la guarnición.";
   else if(h.kind === "claim") txt = "💰 <b>" + who + "</b> reclamó el tesoro.";
   else txt = "• " + esc(h.kind);
   return txt + ' <span style="opacity:.6">· ' + t + '</span>';
@@ -1307,6 +1308,8 @@ Game.openThrone = async function(node){
 
       }
     }else{
+      const gd = (t && t.gdetail) || {};
+      const gkeys = Object.keys(gd).filter(k => Number(gd[k]) > 0);
       body += '<div class="muted" style="margin-top:10px">Enviar refuerzos desde tu reino</div>';
       if(!troops.length){
         body += '<div class="muted">No tienes tropas para reforzar.</div>';
@@ -1317,11 +1320,22 @@ Game.openThrone = async function(node){
             '<input id="thq_' + x.key + '" type="number" min="0" step="1" max="' + Math.floor(x.qty) + '" value="">' +
             '<button class="btn sm" data-thmax="' + x.key + '">MAX</button></div>';
         });
-        body += '<div style="text-align:center;margin-top:10px">' +
-          '<button class="btn" id="thrReinBtn">🛡️ Reforzar guarnición</button>' +
-          (t.treasure && Object.keys(t.treasure).length ? '<button class="btn" id="thrClaimBtn">💰 Reclamar tesoro</button>' : '') +
-          '</div>';
       }
+      if(gkeys.length){
+        body += '<div class="muted" style="margin-top:12px">Retirar tropas de la guarnición</div>';
+        gkeys.forEach(k => {
+          const m = TRP[k] || { e: "⚔️", n: k };
+          const gq = Math.floor(Number(gd[k]) || 0);
+          body += '<div class="atkRow"><span class="an">' + (m.e || "⚔️") + ' ' + m.n + '</span><span class="amax">de ' + un(gq) + '</span>' +
+            '<input id="thw_' + k + '" type="number" min="0" step="1" max="' + gq + '" value="">' +
+            '<button class="btn sm" data-thwmax="' + k + '">MAX</button></div>';
+        });
+      }
+      body += '<div style="text-align:center;margin-top:10px">' +
+        (troops.length ? '<button class="btn" id="thrReinBtn">🛡️ Reforzar guarnición</button>' : '') +
+        (gkeys.length ? '<button class="btn" id="thrWithBtn">➖ Retirar tropas</button>' : '') +
+        (t.treasure && Object.keys(t.treasure).length ? '<button class="btn" id="thrClaimBtn">💰 Reclamar tesoro</button>' : '') +
+        '</div>';
     }
     if(t && t.history && t.history.length){
       body += '<div class="muted" style="margin-top:12px">Historial</div><div class="thrHist">';
@@ -1335,8 +1349,15 @@ Game.openThrone = async function(node){
         if(inp) inp.value = Number(inp.max) || 0;
       };
     });
+    document.querySelectorAll('#modalBox button[data-thwmax]').forEach(b => {
+      b.onclick = () => {
+        const inp = document.getElementById('thw_' + b.dataset.thwmax);
+        if(inp) inp.value = Number(inp.max) || 0;
+      };
+    });
     const ab = document.getElementById("thrAtkBtn"); if(ab) ab.onclick = () => this.thrAtk(node);
     const rb = document.getElementById("thrReinBtn"); if(rb) rb.onclick = () => this.thrRein(node);
+    const wb = document.getElementById("thrWithBtn"); if(wb) wb.onclick = () => this.thrWith(node);
     const cb = document.getElementById("thrClaimBtn"); if(cb) cb.onclick = () => this.thrClaim(node);
   }catch(e){ toast(shortMsg(e), true); }
 };
@@ -1366,6 +1387,26 @@ Game.thrRein = async function(node){
     await sbRpc("wow_throne_reinforce", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
     toast("🛡️ Guarnición reforzada.");
+    await this.refresh(); await this.loadMap();
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game._thrWithTroops = function(){
+  const payload = {};
+  document.querySelectorAll('#modalBox input[id^="thw_"]').forEach(inp => {
+    const k = inp.id.slice(4);
+    const v = Math.max(0, parseInt(inp.value, 10) || 0);
+    if(v > 0) payload[k] = v;
+  });
+  return payload;
+};
+Game.thrWith = async function(node){
+  const payload = this._thrWithTroops();
+  if(!Object.keys(payload).length) return toast("Elige al menos una tropa para retirar.", true);
+  if(!confirm("¿Retirar estas tropas de la guarnición? Si la dejas vacía, otro reino podrá ocupar el trono.")) return;
+  try{
+    const r = await sbRpc("wow_throne_withdraw", { p_token: this.me.token, p_node: node, p_troops: payload });
+    modalClose();
+    toast(r.empty ? "➖ Tropas retiradas. ¡La guarnición quedó vacía!" : "➖ Tropas retiradas a tu reino.");
     await this.refresh(); await this.loadMap();
   }catch(e){ toast(shortMsg(e), true); }
 };

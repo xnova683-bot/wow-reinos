@@ -132,7 +132,7 @@ begin
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'holder', t.holder, 'holder_name', t.holder_name,
-      'faction', fac, 'garrison', coalesce(g,0), 'since', t.since_ms,
+      'faction', fac, 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
       'mine', (t.holder = u.id), 'treasure', tr, 'history', hist);
   end loop;
   return jsonb_build_object('ok', true, 'share', _wow_throne_pct(), 'thrones', arr);
@@ -228,6 +228,40 @@ begin
   return jsonb_build_object('ok', true, 'garrison', newg);
 end $$;
 grant execute on function public.wow_throne_reinforce(text, integer, jsonb) to anon, authenticated;
+
+-- ---- retirar tropas de la guarnicion (solo el duenio) ----
+create or replace function public.wow_throne_withdraw(p_token text, p_node integer, p_troops jsonb)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; t wow_thrones; army jsonb; newg jsonb; z record; left_g int;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  u := _wow_tick(u.id);
+  army := _wow_throne_check(p_troops);
+  select * into t from wow_thrones where node = p_node for update;
+  if t.node is null then raise exception 'Trono no válido.'; end if;
+  if t.holder <> u.id then raise exception 'No controlas ese trono.'; end if;
+  -- comprobar que la guarnicion tiene esas tropas
+  for z in select key, value::int from jsonb_each_text(army) loop
+    if coalesce((t.garrison->>z.key)::int, 0) < z.value then
+      raise exception 'No tienes tantas tropas de ese tipo en la guarnición.'; end if;
+  end loop;
+  -- retirar de la guarnicion y devolverlas al reino
+  newg := t.garrison;
+  for z in select key, value::int from jsonb_each_text(army) loop
+    left_g := coalesce((newg->>z.key)::int, 0) - z.value;
+    if left_g > 0 then
+      newg := jsonb_set(newg, array[z.key], to_jsonb(left_g), true);
+    else
+      newg := newg - z.key;
+    end if;
+    perform _wow_mkt_add(u.id, z.key, z.value);
+  end loop;
+  update wow_thrones set garrison = newg where node = t.node;
+  perform _wow_throne_log(t.node, 'withdraw', u.id, u.name, jsonb_build_object('troops', army));
+  return jsonb_build_object('ok', true, 'garrison', newg, 'empty', (newg = '{}'::jsonb));
+end $$;
+grant execute on function public.wow_throne_withdraw(text, integer, jsonb) to anon, authenticated;
 
 -- ---- reclamar tesoro (solo el duenio) ----
 create or replace function public.wow_throne_claim(p_token text, p_node integer)
