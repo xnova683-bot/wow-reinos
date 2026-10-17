@@ -245,6 +245,7 @@ const Auth = {
         $("#tabMap").classList.toggle("hidden", Game.tab !== "map");
         $("#tabMil").classList.toggle("hidden", Game.tab !== "mil");
         $("#tabAlly").classList.toggle("hidden", Game.tab !== "ally");
+        $("#tabChat").classList.toggle("hidden", Game.tab !== "chat");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
         $("#tabMarket").classList.toggle("hidden", Game.tab !== "market");
         $("#tabAdmin").classList.toggle("hidden", Game.tab !== "admin");
@@ -254,6 +255,7 @@ const Auth = {
         if(Game.tab === "map") Game.loadMap(); else { Game.stopMarchLoop(); Game.stopMarchPoll(); }
         if(Game.tab === "mil") Game.loadMil();
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
+        if(Game.tab === "chat") Game.renderGChat(); else Game.stopGChatPoll();
         if(Game.tab === "market") Game.loadMarket && Game.loadMarket();
         if(Game.tab === "admin") Game.loadAdmin();
       };
@@ -336,7 +338,7 @@ const Auth = {
 
 /* ---------------- el reino ---------------- */
 const Game = {
-  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false, mapList: [], chatTimer: null, mapRot: 0, mapTilt: 56,
+  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false, mapList: [], chatTimer: null, gchatTimer: null, mapRot: 0, mapTilt: 56,
 
   async start(me){
     this.me = me;
@@ -351,7 +353,7 @@ const Game = {
     if (this.me && this.me.id === "admin") this.setAdminTab(true);
     this.loop();
   },
-  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this.stopMarchLoop(); this.stopMarchPoll(); },
+  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this.stopMarchLoop(); this.stopMarchPoll(); this.stopChatPoll(); this.stopGChatPoll(); },
   async refresh(){
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
@@ -1017,6 +1019,44 @@ const Game = {
     const inp = document.getElementById("chatIn"); const msg = inp ? inp.value.trim() : "";
     if(!msg) return;
     try{ await sbRpc("wow_chat_send", { p_token: this.me.token, p_msg: msg }); if(inp) inp.value = ""; await this.loadChat(); }
+    catch(e){ toast(shortMsg(e), true); }
+  },
+  async renderGChat(){
+    $("#tabChat").innerHTML =
+      '<div class="secTitle">💬 Chat global</div>' +
+      '<p class="hint" style="margin:-6px 0 10px">Habla con todos los reinos de Azeroth. Sé respetuoso.</p>' +
+      '<div id="gchatMsgs" class="chatBox"></div>' +
+      '<div class="chatRow"><input id="gchatIn" placeholder="Escribe al mundo…" maxlength="300"><button class="btn sm" id="gchatSend">Enviar</button></div>';
+    $("#gchatSend").onclick = () => this.sendGChat();
+    $("#gchatIn").onkeydown = e => { if(e.key === "Enter") this.sendGChat(); };
+    await this.loadGChat();
+    this.startGChatPoll();
+  },
+  stopGChatPoll(){ clearInterval(this.gchatTimer); this.gchatTimer = null; },
+  startGChatPoll(){ this.stopGChatPoll(); this.gchatTimer = setInterval(() => this.loadGChat(), 4000); },
+  async loadGChat(){
+    try{
+      const msgs = await sbRpc("wow_gchat", { p_token: this.me.token, p_since: 0 });
+      const box = document.getElementById("gchatMsgs"); if(!box) return;
+      box.innerHTML = (msgs && msgs.length)
+        ? msgs.map(m => '<div class="cmsg' + (m.me ? " me" : "") + '"><span class="cwho">' + (m.faction === "horda" ? "⚔️" : "🛡️") + ' ' +
+            esc(m.tag ? "[" + m.tag + "] " : "") + esc(m.name) + ':</span> ' + esc(m.msg) +
+            ' <span class="ctime">' + hora(m.created) + '</span>' +
+            (this.me.is_admin ? ' <button class="btn sm danger" data-gdel="' + m.id + '" title="Borrar mensaje">🗑️</button>' : "") + '</div>').join("")
+        : '<div class="empty" style="padding:14px">Sé el primero en escribir.</div>';
+      box.scrollTop = box.scrollHeight;
+      box.querySelectorAll("[data-gdel]").forEach(b => b.onclick = () => this.delGChat(b.dataset.gdel));
+    }catch(_){}
+  },
+  async sendGChat(){
+    const inp = document.getElementById("gchatIn"); const msg = inp ? inp.value.trim() : "";
+    if(!msg) return;
+    try{ await sbRpc("wow_gchat_send", { p_token: this.me.token, p_msg: msg }); if(inp) inp.value = ""; await this.loadGChat(); }
+    catch(e){ toast(shortMsg(e), true); }
+  },
+  async delGChat(id){
+    if(!confirm("¿Borrar este mensaje del chat global?")) return;
+    try{ await sbRpc("wow_gchat_delete", { p_token: this.me.token, p_id: Number(id) }); await this.loadGChat(); toast("Mensaje borrado."); }
     catch(e){ toast(shortMsg(e), true); }
   },
   async createAlly(){
