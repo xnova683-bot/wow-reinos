@@ -92,7 +92,7 @@ const TRP = {
   soldado: { n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg" },
   arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
   jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg" },
-  mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg" },
+  mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
   paladin: { n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg" },
   dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg" }
 };
