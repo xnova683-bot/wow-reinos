@@ -563,7 +563,7 @@ const Game = {
       const owned = !!t.holder;
       const crown = owned ? "👑" : "🏯";
       const label = owned ? esc(t.holder_name || "?") : "Libre";
-      throneHtml += `<div class="mPin throne${owned ? " taken" : ""}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
+      throneHtml += `<div class="mPin throne${owned ? " taken" : ""}" data-thr="${t.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
           <div class="mPinCastle">${crown}</div>
           <div class="mPinName">${esc(t.name)}</div>
           <div class="mPinTag">${label}</div>
@@ -580,9 +580,8 @@ const Game = {
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
-    $("#m2root").querySelectorAll(".mPin.throne").forEach((b, i) => {
-      const nodes = [0,21];
-      b.onclick = () => this.openThrone(nodes[i]);
+    $("#m2root").querySelectorAll(".mPin.throne").forEach(b => {
+      b.onclick = () => this.openThrone(parseInt(b.dataset.thr, 10));
     });
     this.loadMarches();
     this.startMarchLoop();
@@ -1213,57 +1212,106 @@ Game.openThrone = async function(node){
     this._thrones = r.thrones || [];
     const t = this._thrones.find(x => x.node === node);
     const me = this.me;
-    let body = '';
+    const own = !!(t && t.holder === me.id);
+    const troops = ((this.st && this.st.troops) || []).filter(x => x.qty > 0);
+    let body = '<h2 style="margin-top:0;color:var(--gold)">🏯 ' + esc(t ? t.name : "Trono") + '</h2>';
     if(!t){
-      body = '<div class="row">Trono libre. Envía tropas para ocuparlo.</div>';
+      body += '<div class="muted">Trono libre. Envía tropas para ocuparlo.</div>';
     }else{
-      const own = t.holder === me.id;
-      body += '<div class="row"><span>Dueño</span><span>' + esc(t.holder_name || '-') + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
-      body += '<div class="row"><span>Guarnición (total)</span><span>' + un(t.garrison||0) + '</span></div>';
+      body += '<div class="row"><span>Dueño</span><span>' + esc(t.holder_name || 'Libre') + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
+      body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
-        let tr='<div class="muted">Tesoro acumulado</div>';
-        for(let k in t.treasure) tr += '<div class="row"><span>' + this.mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
-        body += tr;
+        body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
+        for(let k in t.treasure) body += '<div class="row"><span>' + this.mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
       }else body += '<div class="muted">Sin tesoro por ahora.</div>';
       body += '<div class="row"><span>Tributo</span><span>' + un(r.share||1) + '% del valor del trato</span></div>';
-      if(own){
-        body += '<button class="btn" onclick="Game.thrRein('+node+')">🛡️ Reforzar guarnición</button>';
-        if(t.treasure && Object.keys(t.treasure).length) body += '<button class="btn" onclick="Game.thrClaim('+node+')">💰 Reclamar tesoro</button>';
+    }
+    if(!own){
+      body += '<div class="muted" style="margin-top:10px">Enviar desde tu reino</div>';
+      if(!troops.length){
+        body += '<div class="muted">No tienes tropas. Entrena en el Cuartel (pestaña ⚔️ Tropas).</div>';
       }else{
-        body += '<button class="btn" onclick="Game.thrAtk('+node+')">⚔️ Atacar para conquistar</button>';
+        troops.forEach(x => {
+          const m = TRP[x.key] || { e: "⚔️", n: x.key };
+          body += '<div class="atkRow"><span class="an">' + (m.e || "⚔️") + ' ' + m.n + '</span><span class="amax">de ' + un(x.qty) + '</span>' +
+            '<input id="thq_' + x.key + '" type="number" min="0" step="1" max="' + Math.floor(x.qty) + '" value="">' +
+            '<button class="btn sm" data-thmax="' + x.key + '">MAX</button></div>';
+        });
+        body += '<div style="text-align:center;margin-top:10px">' +
+          '<button class="btn" id="thrAtkBtn">⚔️ ' + (t && t.holder ? 'Atacar para conquistar' : 'Ocupar el trono') + '</button></div>';
+
       }
-      if(t.history && t.history.length){
-        body += '<div class="muted" style="margin-top:12px">Historial</div><div class="thrHist">';
-        t.history.forEach(h => body += '<div class="thrEvent">' + this.thrEvent(h) + '</div>');
-        body += '</div>';
-      }
-    }
-    if(!t || t.holder !== me.id){
-      body += '<div style="height:8px"></div><div class="muted">Envío desde tu reino</div>';
-      body += '<div class="row"><span>Tropa</span><span><select id="thrTroop" style="width:140px">';
-      const TRP = {"soldado":"Soldado","arquero":"Arquero","jinete":"Jinete","mago":"Mago","paladin":"Paladín","dragon":"Dragón"};
-      Object.keys(TRP).forEach(k => body += '<option value="'+k+'">'+TRP[k]+'</option>');
-      body += '</select></span></div>';
-      body += '<div class="row"><span>Cantidad</span><span><input id="thrQty" type="number" min="0" step="1" style="width:140px"></span></div>';
-      const inv = this.inv || {};
-      body += '<div class="row"><span>Tienes</span><span id="thrHave">' + un((inv[Object.keys(TRP)[0]])||0) + '</span></div>';
-    }
-    const modal = modalBox('🏯 Trono', body + '<div style="height:10px"></div><button class="btn ghost" onclick="closeModal()">Cerrar</button>', null, 520);
-    if(modal && (!t || t.holder !== me.id)){
-      const sel = document.getElementById('thrTroop');
-      const qty = document.getElementById('thrQty');
-      const hav = document.getElementById('thrHave');
-      if(sel){
-        sel.onchange = () => { hav.textContent = un((Game.inv && Game.inv[sel.value])||0); };
-        hav.textContent = un((Game.inv && Game.inv[sel.value])||0);
-      }
-      if(qty && sel){
-        const btn = document.createElement('button');
-        btn.className='btn sm'; btn.textContent='MAX';
-        btn.onclick=()=>{ qty.value=Math.floor((Game.inv&&Game.inv[sel.value])||0); };
-        qty.parentElement.appendChild(btn);
+    }else{
+      body += '<div class="muted" style="margin-top:10px">Enviar refuerzos desde tu reino</div>';
+      if(!troops.length){
+        body += '<div class="muted">No tienes tropas para reforzar.</div>';
+      }else{
+        troops.forEach(x => {
+          const m = TRP[x.key] || { e: "⚔️", n: x.key };
+          body += '<div class="atkRow"><span class="an">' + (m.e || "⚔️") + ' ' + m.n + '</span><span class="amax">de ' + un(x.qty) + '</span>' +
+            '<input id="thq_' + x.key + '" type="number" min="0" step="1" max="' + Math.floor(x.qty) + '" value="">' +
+            '<button class="btn sm" data-thmax="' + x.key + '">MAX</button></div>';
+        });
+        body += '<div style="text-align:center;margin-top:10px">' +
+          '<button class="btn" id="thrReinBtn">🛡️ Reforzar guarnición</button>' +
+          (t.treasure && Object.keys(t.treasure).length ? '<button class="btn" id="thrClaimBtn">💰 Reclamar tesoro</button>' : '') +
+          '</div>';
       }
     }
+    if(t && t.history && t.history.length){
+      body += '<div class="muted" style="margin-top:12px">Historial</div><div class="thrHist">';
+      t.history.forEach(h => body += '<div class="thrEvent">' + this.thrEvent(h) + '</div>');
+      body += '</div>';
+    }
+    modal(body);
+    document.querySelectorAll('#modalBox button[data-thmax]').forEach(b => {
+      b.onclick = () => {
+        const inp = document.getElementById('thq_' + b.dataset.thmax);
+        if(inp) inp.value = Number(inp.max) || 0;
+      };
+    });
+    const ab = document.getElementById("thrAtkBtn"); if(ab) ab.onclick = () => this.thrAtk(node);
+    const rb = document.getElementById("thrReinBtn"); if(rb) rb.onclick = () => this.thrRein(node);
+    const cb = document.getElementById("thrClaimBtn"); if(cb) cb.onclick = () => this.thrClaim(node);
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game._thrTroops = function(){
+  const payload = {};
+  document.querySelectorAll('#modalBox input[id^="thq_"]').forEach(inp => {
+    const k = inp.id.slice(4);
+    const v = Math.max(0, parseInt(inp.value, 10) || 0);
+    if(v > 0) payload[k] = v;
+  });
+  return payload;
+};
+Game.thrAtk = async function(node){
+  const payload = this._thrTroops();
+  if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
+  try{
+    const r = await sbRpc("wow_throne_attack", { p_token: this.me.token, p_node: node, p_troops: payload });
+    modalClose();
+    toast(r.free ? "🏯 ¡Ocupaste el trono!" : (r.win ? "👑 ¡Conquistaste el trono!" : "❌ La guarnición resistió."));
+    await this.refresh(); await this.loadMap();
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game.thrRein = async function(node){
+  const payload = this._thrTroops();
+  if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
+  try{
+    await sbRpc("wow_throne_reinforce", { p_token: this.me.token, p_node: node, p_troops: payload });
+    modalClose();
+    toast("🛡️ Guarnición reforzada.");
+    await this.refresh(); await this.loadMap();
+  }catch(e){ toast(shortMsg(e), true); }
+};
+Game.thrClaim = async function(node){
+  try{
+    const r = await sbRpc("wow_throne_claim", { p_token: this.me.token, p_node: node });
+    const c = r.claimed || {};
+    const parts = Object.keys(c).filter(k => Number(c[k]) > 0).map(k => this.mktName(k) + ": " + un(c[k]));
+    modalClose();
+    toast("💰 Reclamado: " + (parts.length ? parts.join(", ") : "nada"));
+    await this.refresh(); await this.loadMap();
   }catch(e){ toast(shortMsg(e), true); }
 };
 
