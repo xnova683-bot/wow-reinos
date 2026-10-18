@@ -9,6 +9,7 @@ const $ = sel => document.querySelector(sel);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const un = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 0 });
 const fmt = n => Number(n || 0).toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ALLY_MAX = 5;
 function tfmt(sec){
   sec = Math.max(0, Math.round(sec));
   if(sec < 60) return sec + "s";
@@ -912,10 +913,12 @@ const Game = {
       <div class="allyList">`;
     if(!list.length) html += '<div class="empty" style="padding:16px">Todavía no hay alianzas. ¡Crea la primera!</div>';
     list.forEach(a => {
+      const full = a.members >= ALLY_MAX;
       html += `<div class="allyCard">
         <div class="info"><div class="t">[${esc(a.tag)}] ${esc(a.name)}</div>
-        <div class="m">${a.members} miembro${a.members === 1 ? "" : "s"} · ${un(a.points)} pts</div></div>
-        <button class="btn sm" data-join="${esc(a.id)}">Unirme</button>
+        <div class="m">${a.members}/${ALLY_MAX} miembros · ${un(a.points)} pts</div></div>
+        ${full ? '<button class="btn sm" disabled>Llena</button>'
+               : `<button class="btn sm" data-join="${esc(a.id)}">Unirme</button>`}
       </div>`;
     });
     html += `</div>
@@ -932,7 +935,7 @@ const Game = {
     let html = `<div class="allyBox">
       <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
       <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
-      <div class="secTitle" style="margin-top:0">👥 Miembros (${info.members.length})</div>
+      <div class="secTitle" style="margin-top:0">👥 Miembros (${info.members.length}/${ALLY_MAX})</div>
       <div class="members">`;
     info.members.forEach(m => {
       html += `<div class="mem${m.me ? " me" : ""}">${m.faction === "horda" ? "⚔️" : "🛡️"} ${esc(m.name)}${m.leader ? " 👑" : ""}<span class="memPts">${un(m.points)} pts</span></div>`;

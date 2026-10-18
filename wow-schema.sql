@@ -2477,6 +2477,23 @@ begin
 end $$;
 grant execute on function public.wow_ally_wars(text) to anon, authenticated;
 
+-- ---------- limite de miembros: maximo 5 por alianza ----------
+create or replace function public.wow_alliance_join(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; vcnt integer;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is not null then raise exception 'Ya estás en una alianza. Sal de la actual primero.'; end if;
+  if not exists(select 1 from wow_alliances where id = p_id) then
+    raise exception 'Esa alianza ya no existe.'; end if;
+  select count(*) into vcnt from wow_users where alliance = p_id;
+  if vcnt >= 5 then raise exception 'Esa alianza ya está llena (máximo 5 miembros).'; end if;
+  update wow_users set alliance = p_id where id = u.id;
+  return jsonb_build_object('ok', true, 'id', p_id);
+end $$;
+grant execute on function public.wow_alliance_join(text, text) to anon, authenticated;
+
 -- ================================================================
 -- APENDICE CHAT GLOBAL: mensajes publicos de todos los jugadores
 --   (generado desde wow-chat.sql)
