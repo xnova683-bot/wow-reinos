@@ -366,7 +366,7 @@ const Game = {
     if (this.me && this.me.id === "admin") this.setAdminTab(true);
     this.loop();
   },
-  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this.stopMarchLoop(); this.stopMarchPoll(); this.stopChatPoll(); this.stopGChatPoll(); },
+  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this._mktSig = null; this.mkt = null; this.stopMarchLoop(); this.stopMarchPoll(); this.stopChatPoll(); this.stopGChatPoll(); },
   async refresh(){
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
@@ -1427,22 +1427,29 @@ function mktName(k){
 }
 Game.loadMarket = async function(){
   const el = $("#tabMarket"); if(!el) return;
-  el.innerHTML = '<p class="empty">Cargando mercado…</p>';
+  const first = !this._mktSig;
+  if(first) el.innerHTML = '<p class="empty">Cargando mercado…</p>';
   let d;
   try{ d = await sbRpc("wow_market_list", { p_token: this.me.token }); }
-  catch(e){ el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
+  catch(e){ if(first) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
   this.mkt = d;
+  const sig = JSON.stringify(d);
+  if(sig === this._mktSig) return;  // nada cambió: no redibujar (evita parpadeo)
+  const ae = document.activeElement;
+  if(!first && ae && el.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "SELECT" || ae.tagName === "TEXTAREA")) return;
+  this._mktSig = sig;
   const st = this.st || {};
   const inv = { cup: st.cup || 0, gold: st.gold || 0, wood: st.wood || 0, ore: st.ore || 0 };
   (st.troops || []).forEach(t => inv[t.key] = t.qty);
-  const opts = MKT_ITEMS.map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
+  const optsGive = MKT_ITEMS.map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
+  const optsWant = ['cup'].map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
   let html = '<h2 style="margin-top:0;color:var(--gold)">🛒 Mercado</h2>' +
-    '<p class="hint">Publica ofertas y toma las de otros reinos. Comisión actual: <b>' + un(d.fee) + '%</b> (la paga el vendedor). Las ofertas caducan en 1 día.</p>' +
+    '<p class="hint">Publica ofertas y toma las de otros reinos. Comisión actual: <b>' + un(d.fee) + '%</b> (la paga el vendedor). Las ofertas caducan en 1 día. En <b>Pido</b> solo puedes pedir 🧿 CUP.</p>' +
     '<div class="secTitle">📢 Publicar oferta</div>' +
     '<div class="mktPub">' +
-      '<label>Doy <select id="mkGive">' + opts + '</select>' +
+      '<label>Doy <select id="mkGive">' + optsGive + '</select>' +
         '<input id="mkGiveQty" type="number" min="0" value="0"><button class="btn sm" id="mkGiveMax">MAX</button></label>' +
-      '<label>Pido <select id="mkWant">' + opts + '</select>' +
+      '<label>Pido <select id="mkWant" disabled>' + optsWant + '</select>' +
         '<input id="mkWantQty" type="number" min="0" value="0"></label>' +
       '<button class="btn" id="mkPubGo">📢 Publicar oferta</button>' +
     '</div>' +

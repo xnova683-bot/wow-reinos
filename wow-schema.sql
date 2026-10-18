@@ -1740,6 +1740,8 @@ begin
   ms := (extract(epoch from now())*1000)::bigint;
   if not _wow_mkt_ok(p_give) then raise exception 'Objeto a dar no válido.'; end if;
   if not _wow_mkt_ok(p_want) then raise exception 'Objeto a pedir no válido.'; end if;
+  if coalesce(p_want,'') <> 'cup' then
+    raise exception 'En "Pido" solo puedes pedir 🧿 CUP.'; end if;
   if p_give = p_want then raise exception 'No puedes cambiar un objeto por sí mismo.'; end if;
   if coalesce(p_give_qty,0) <= 0 then raise exception 'Cantidad a dar inválida.'; end if;
   if coalesce(p_want_qty,0) <= 0 then raise exception 'Cantidad a pedir inválida.'; end if;
