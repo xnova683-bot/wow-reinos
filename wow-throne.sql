@@ -228,8 +228,8 @@ begin
     perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
     perform _wow_event('throne', '👑 ' || u.name || ' ha conquistado ' || t.name || ' (antes de ' || coalesce(prev, 'nadie') || ').');
     insert into wow_reports(owner, kind, data, created) values
-      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'battle',sim,'created',ms), ms),
-      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',true,'battle',sim,'created',ms), ms);
+      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms),
+      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms);
     return jsonb_build_object('ok', true, 'win', true, 'battle', sim);
   else
     surv := '{}'::jsonb;
@@ -239,8 +239,8 @@ begin
     update wow_thrones set garrison = surv where node = t.node;
     perform _wow_throne_log(t.node, 'defended', u.id, u.name, jsonb_build_object('holder', prev));
     insert into wow_reports(owner, kind, data, created) values
-      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',false,'battle',sim,'created',ms), ms),
-      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',false,'battle',sim,'created',ms), ms);
+      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms),
+      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms);
     return jsonb_build_object('ok', true, 'win', false, 'battle', sim);
   end if;
 end $$;

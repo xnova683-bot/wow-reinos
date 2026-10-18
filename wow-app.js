@@ -824,6 +824,16 @@ const Game = {
           cls = "win";
           title = `🕵️ Capturaste a un espía de <b>${esc(r.who)}</b>`;
           det = "Su misión fracasó. ";
+        }else if(r.dir === "throne"){
+          cls = r.win ? "win" : "lose";
+          title = r.win
+            ? `🏯 ¡Has conquistado <b>${esc(r.who)}</b>!`
+            : `🏯 Ataque a <b>${esc(r.who)}</b> repelido`;
+        }else if(r.dir === "throne_in"){
+          cls = r.win ? "lose" : "win";
+          title = r.win
+            ? `🏯 Has perdido <b>${esc(r.who)}</b>` + (r.from ? ` — atacado por <b>${esc(r.from)}</b>` : "")
+            : `🏯 Has defendido <b>${esc(r.who)}</b>` + (r.from ? ` de <b>${esc(r.from)}</b>` : "");
         }else{
           cls = "win";
           title = "🏠 Tus tropas volvieron a casa";
