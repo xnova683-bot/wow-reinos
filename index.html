@@ -47,7 +47,7 @@ input:focus{outline:none; border-color:var(--gold2)}
 .btn{padding:11px; background:linear-gradient(#f0c060,#d4a017); color:#1a1206; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:14px}
 .btn:hover{filter:brightness(1.08)}
 .btn:disabled{opacity:.45; cursor:not-allowed; filter:none}
-.btn.sm{padding:6px 10px; font-size:12px; background:#2a1e12; color:var(--txt); border:1px solid var(--line)}
+.btn.sm{padding:6px 10px; font-size:12px; background:rgba(42,30,18,.55); backdrop-filter:blur(4px); color:var(--txt); border:1px solid var(--line)}
 .btn.sm:hover{border-color:var(--gold2)}
 .notice{font-size:13px; min-height:16px; color:var(--dim); text-align:center}
 .notice.danger{color:var(--bad)}
@@ -56,10 +56,9 @@ input:focus{outline:none; border-color:var(--gold2)}
 /* ---------- juego ---------- */
 #screenGame{align-items:stretch; padding:14px; max-width:920px; margin:0 auto; width:100%}
 .hudTop{position:relative; overflow:hidden; border:1px solid var(--line); border-radius:14px; margin-bottom:14px; padding:14px 14px 10px; min-height:250px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 8px 22px rgba(0,0,0,.45)}
-.hudTop .hudBg{position:absolute; inset:-24px; background:url(img/header.jpg) center/cover no-repeat; filter:blur(20px) brightness(.5) saturate(1.05); z-index:0}
-.hudTop .hudImg{position:absolute; inset:0; background:url(img/header.jpg) center/contain no-repeat; z-index:0}
-.hudTop .hudShade{position:absolute; inset:0; background:linear-gradient(180deg,rgba(8,6,3,.42) 0%,rgba(8,6,3,.14) 38%,rgba(8,6,3,.74) 100%); z-index:1}
-.hudTop > *:not(.hudBg):not(.hudImg):not(.hudShade){position:relative; z-index:2}
+.hudTop .hudImg{position:absolute; inset:0; background:url(img/header.jpg) center/cover no-repeat; z-index:0}
+.hudTop .hudShade{position:absolute; inset:0; background:linear-gradient(180deg,rgba(8,6,3,.45) 0%,rgba(8,6,3,.12) 38%,rgba(8,6,3,.78) 100%); z-index:1}
+.hudTop > *:not(.hudImg):not(.hudShade){position:relative; z-index:2}
 .top{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px}
 .realmName{font-size:22px; color:var(--gold); text-shadow:0 1px 0 #000}
 .facBadge{font-size:12px; padding:3px 9px; border-radius:20px; color:#fff; margin-left:8px; vertical-align:middle}
@@ -68,7 +67,7 @@ input:focus{outline:none; border-color:var(--gold2)}
 .pts{color:var(--dim); font-size:13px}
 .pts b{color:var(--gold)}
 .resBar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
-.res{flex:1; min-width:120px; background:linear-gradient(#241a10,#1a1209); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
+.res{flex:1; min-width:120px; background:linear-gradient(rgba(36,26,16,.62),rgba(26,18,9,.62)); backdrop-filter:blur(3px); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
 .ri{font-size:19px}
 .rv{font-size:16px; font-weight:bold; color:var(--gold); font-variant-numeric:tabular-nums}
 .rh{margin-left:auto; font-size:11px; color:var(--green)}
@@ -79,8 +78,9 @@ input:focus{outline:none; border-color:var(--gold2)}
 .qFill{height:100%; width:0%; background:linear-gradient(90deg,var(--gold2),var(--gold)); transition:width .4s linear}
 .qTime{text-align:right; font-size:12px; color:var(--dim); margin-top:5px; font-variant-numeric:tabular-nums}
 .gameTabs{display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap}
-.gameTabs button{flex:1; min-width:110px; padding:9px; background:#150f09; border:1px solid var(--line); color:var(--dim); border-radius:8px; cursor:pointer; font-size:14px}
-.gameTabs button.on{background:var(--gold2); color:#1a1206; border-color:var(--gold); font-weight:bold}
+.gameTabs button{flex:1; min-width:110px; padding:9px; background:rgba(18,12,7,.5); backdrop-filter:blur(4px); border:1px solid var(--line); color:var(--dim); border-radius:8px; cursor:pointer; font-size:14px}
+.gameTabs button:hover{border-color:var(--gold2); color:var(--txt)}
+.gameTabs button.on{background:rgba(212,160,23,.88); color:#1a1206; border-color:var(--gold); font-weight:bold}
 main{flex:1}
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px}
 .card{background:linear-gradient(#211709,#170f08); border:1px solid var(--line); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px}
@@ -359,7 +359,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 <!-- ============ JUEGO ============ -->
 <div id="screenGame" class="screen hidden">
   <div class="hudTop">
-  <div class="hudBg"></div><div class="hudImg"></div><div class="hudShade"></div>
+  <div class="hudImg"></div><div class="hudShade"></div>
   <div class="top">
     <div><span class="realmName" id="gName"></span><span class="facBadge" id="gFac"></span><span class="allyBadge" id="gAlly"></span></div>
     <div class="topR">
