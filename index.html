@@ -187,6 +187,26 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .btlD summary{cursor:pointer; color:var(--gold); font-size:12px}
 .rnd{display:flex; gap:8px; flex-wrap:wrap; justify-content:space-between; padding:3px 0; border-bottom:1px solid #241a10; font-variant-numeric:tabular-nums}
 .rnd:last-child{border-bottom:0}
+.btl.btlWin{border-left:3px solid var(--green)}
+.btl.btlLose{border-left:3px solid var(--bad)}
+.btlHead{color:var(--txt); font-weight:bold; margin-bottom:7px}
+.btlVs{display:flex; align-items:center; gap:8px; margin-bottom:8px}
+.btlS{flex:1; background:#140f09; border:1px solid #2a1e12; border-radius:7px; padding:6px 8px; text-align:center}
+.btlS .btlLbl{display:block; font-size:11px; color:var(--dim)}
+.btlS .btlN{display:block; font-size:18px; color:var(--gold); font-variant-numeric:tabular-nums}
+.btlS .btlD2{display:block; font-size:10px; color:var(--dim)}
+.btlS.atk{border-color:#5a3a1e}
+.btlS.def{border-color:#2a3a5a}
+.btlVor{color:var(--dim); font-size:11px; font-weight:bold}
+.btlTbl{width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums}
+.btlTbl th{text-align:left; font-size:11px; color:var(--dim); padding:3px 4px; border-bottom:1px solid #241a10}
+.btlTbl td{padding:3px 4px; border-bottom:1px solid #1c150d}
+.btlTbl .btlT{color:var(--dim)}
+.btlQ{color:var(--green)}
+.btlL{color:var(--bad); font-size:11px}
+.btlTot td{border-top:1px solid #2a1e12; color:var(--txt)}
+.btlFoot{margin-top:7px}
+.rndR{color:var(--gold); min-width:58px}
 .atkRow{display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid #2a1e12}
 .atkRow .an{flex:1; font-size:14px}
 .atkRow .amax{color:var(--dim); font-size:12px}
@@ -435,5 +455,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261018c"></script>
+    <script src="wow-app.js?v=20261018d"></script>
 </body></html>

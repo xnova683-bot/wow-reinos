@@ -90,12 +90,12 @@ const BLD = {
   muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino" }
 };
 const TRP = {
-  soldado: { n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
-  arquero: { n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
-  jinete:  { n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
-  mago:    { n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
-  paladin: { n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg", imgH: "img/horda/paladin.jpg" },
-  dragon:  { n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg?v=2" }
+  soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
+  arquero: { e: "🏹", n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
+  jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
+  mago:    { e: "🔮", n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
+  paladin: { e: "🛡️", n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg", imgH: "img/horda/paladin.jpg" },
+  dragon:  { e: "🐉", n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg?v=2" }
 };
 const CTR = {
   soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
@@ -736,19 +736,46 @@ const Game = {
   },
   battleSummary(b){
     if(!b) return "";
+    const K = ["soldado","arquero","jinete","mago","paladin","dragon"];
+    const em = k => (TRP[k] || {}).e || "⚔️";
+    const nm = k => (TRP[k] || {}).n || k;
+    const num = (o, k) => Number(o && o[k]) || 0;
     const nR = (b.rounds || []).length;
-    const aL = this.troopStr(b.a_loss), dL = this.troopStr(b.d_loss);
-    const aQ = this.troopStr(b.a_left), dQ = this.troopStr(b.d_left);
+    const has = o => o && Object.keys(o).length;
+    const merge = (x, y) => { const o = {}; K.forEach(k => { const v = num(x, k) + num(y, k); if (v) o[k] = v; }); return o; };
+    const as = has(b.a_start) ? b.a_start : merge(b.a_left, b.a_loss);
+    const ds = has(b.d_start) ? b.d_start : merge(b.d_left, b.d_loss);
+    const al = b.a_left || {}, dl = b.d_left || {}, ax = b.a_loss || {}, dx = b.d_loss || {};
+    const sum = o => K.reduce((s, k) => s + (Number(o[k]) || 0), 0);
+    const totA = sum(as), totD = sum(ds);
+    const win = b.winner === "attacker";
     const rout = b.rout ? (b.rout === "both" ? "rompieron filas ambos" : "huyó " + (b.rout === "attacker" ? "el atacante" : "el defensor"))
       : (nR >= 20 ? "se agotó el tiempo" : "sin desbandada");
-    const rows = (b.rounds || []).map(x =>
-      `<div class="rnd"><span>Ronda ${x.r}</span><span>⚔️ -${un(x.aLoss)} / 🛡️ -${un(x.dLoss)}</span>` +
-      `<span>quedan ${un(x.aLeft)} / ${un(x.dLeft)}</span><span>moral ${x.aMor}/${x.dMor}</span></div>`).join("");
-    return `<div class="btl">
-      <div class="btlTop">🔄 ${nR} ronda${nR === 1 ? "" : "s"} · moral final <b>${un(b.a_morale)}</b> / <b>${un(b.d_morale)}</b> · ${rout}</div>
-      <div class="btlSide">⚔️ Atacante — bajas: ${aL} · quedan: ${aQ}</div>
-      <div class="btlSide">🛡️ Defensor — bajas: ${dL} · quedan: ${dQ}</div>
-      ${rows ? `<details class="btlD"><summary>Ver ronda a ronda</summary>${rows}</details>` : ""}
+    const cell = (q0, q1, qL) => `<b>${un(q0)}</b> → <span class="btlQ">${un(q1)}</span>` +
+      (qL > 0 ? ` <span class="btlL">-${un(qL)}</span>` : "");
+    const rows = K.filter(k => (num(as, k) + num(ds, k)) > 0).map(k =>
+      `<tr><td class="btlT">${em(k)} ${nm(k)}</td>` +
+      `<td>${cell(num(as, k), num(al, k), num(ax, k))}</td>` +
+      `<td>${cell(num(ds, k), num(dl, k), num(dx, k))}</td></tr>`).join("");
+    const rrows = (b.rounds || []).map(x =>
+      `<div class="rnd"><span class="rndR">Ronda ${x.r}</span>` +
+      `<span>⚔️ -${un(x.aLoss)} · 🛡️ -${un(x.dLoss)}</span>` +
+      `<span>quedan ⚔️ ${un(x.aLeft)} / 🛡️ ${un(x.dLeft)}</span>` +
+      `<span>moral ${x.aMor} / ${x.dMor}</span></div>`).join("");
+    return `<div class="btl ${win ? "btlWin" : "btlLose"}">
+      <div class="btlHead">${win ? "🏆 Victoria del atacante" : "🛡️ El defensor resiste"} · ${nR} ronda${nR === 1 ? "" : "s"} · ${rout}</div>
+      <div class="btlVs">
+        <div class="btlS atk"><span class="btlLbl">⚔️ Atacante</span><span class="btlN">${un(totA)}</span><span class="btlD2">tropas iniciales</span></div>
+        <div class="btlVor">VS</div>
+        <div class="btlS def"><span class="btlLbl">🛡️ Defensor</span><span class="btlN">${un(totD)}</span><span class="btlD2">tropas iniciales</span></div>
+      </div>
+      <table class="btlTbl">
+        <tr><th>Tropa</th><th>⚔️ Atacante</th><th>🛡️ Defensor</th></tr>
+        ${rows || '<tr><td colspan="3">Sin tropas</td></tr>'}
+        <tr class="btlTot"><td class="btlT">Total</td><td><b>${un(totA)}</b> → ${un(sum(al))}</td><td><b>${un(totD)}</b> → ${un(sum(dl))}</td></tr>
+      </table>
+      <div class="btlFoot">Moral final · ⚔️ <b>${un(b.a_morale)}</b> / 🛡️ <b>${un(b.d_morale)}</b></div>
+      ${rrows ? `<details class="btlD"><summary>Ver rondas (${nR})</summary>${rrows}</details>` : ""}
     </div>`;
   },
   async loadMil(){
