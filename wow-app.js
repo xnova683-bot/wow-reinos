@@ -350,6 +350,8 @@ const Game = {
     const f = $("#gFac");
     f.textContent = me.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
     f.className = "facBadge " + (me.faction === "horda" ? "horda" : "alianza");
+    const ht = document.querySelector(".hudTop");
+    if (ht) ht.classList.toggle("fac-horda", me.faction === "horda");
     const ab = $("#gAlly"); if(ab){ ab.textContent = ""; ab.style.display = "none"; }
     this.setAdminTab(!!me.is_admin);
     await this.refresh();

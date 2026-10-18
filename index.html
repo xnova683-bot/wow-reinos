@@ -56,7 +56,8 @@ input:focus{outline:none; border-color:var(--gold2)}
 /* ---------- juego ---------- */
 #screenGame{align-items:stretch; padding:14px; max-width:920px; margin:0 auto; width:100%}
 .hudTop{position:relative; overflow:hidden; border:1px solid var(--line); border-radius:14px; margin-bottom:14px; padding:14px 14px 10px; min-height:250px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 8px 22px rgba(0,0,0,.45)}
-.hudTop .hudImg{position:absolute; inset:0; background:url(img/header.jpg) center/cover no-repeat; z-index:0}
+.hudTop .hudImg{position:absolute; inset:0; background:url(img/header_alianza.jpg) center/cover no-repeat; z-index:0}
+.hudTop.fac-horda .hudImg{background-image:url(img/header_horda.jpg)}
 .hudTop .hudShade{position:absolute; inset:0; background:linear-gradient(180deg,rgba(8,6,3,.45) 0%,rgba(8,6,3,.12) 38%,rgba(8,6,3,.78) 100%); z-index:1}
 .hudTop > *:not(.hudImg):not(.hudShade){position:relative; z-index:2}
 .top{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px}
@@ -434,5 +435,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261017o"></script>
+    <script src="wow-app.js?v=20261018a"></script>
 </body></html>
