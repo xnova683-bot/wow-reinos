@@ -225,6 +225,8 @@ begin
       raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
     if not u.is_admin and _wow_points(u.id) < protect then
       raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+    if not u.is_admin and (_wow_points(u.id) - _wow_points(t.id)) >= protect then
+      raise exception 'No puedes atacar a un reino mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
   end if;
   if t.alliance is not null and t.alliance = u.alliance then
     raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;

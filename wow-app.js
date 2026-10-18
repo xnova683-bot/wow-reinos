@@ -716,17 +716,22 @@ const Game = {
     const myTag = (this.st && this.st.ally_tag) || "";
     const sameAlly = !!r.alliance && r.alliance === myTag;
     const prot = this.protect;
-    const protectedTarget = (prot != null && prot > 0 && !r.me && r.points < prot);
-    const canAtk = !r.me && !sameAlly && !protectedTarget;
+    const myPts = (this.st && this.st.points) || 0;
+    const isNovice = (prot != null && prot > 0 && !r.me && r.points < prot);
+    const tooWeak = (prot != null && prot > 0 && !r.me && !isNovice && (myPts - r.points) >= prot);
+    const canAtk = !r.me && !sameAlly && !isNovice && !tooWeak;
+    const blockMsg = isNovice
+      ? '🔰 Reino protegido por ser novato (menos de ' + un(prot) + ' puntos): no puedes atacarlo.'
+      : (tooWeak ? '⚖️ Hay demasiada diferencia de puntos (' + un(prot) + '): busca un rival más parejo.' : '');
     modal(`<h2 style="margin-top:0;color:var(--gold)">🏰 ${esc(r.name)}</h2>
       ${r.me ? '<p style="color:var(--green);margin:0 0 8px">Este es tu reino</p>' : ""}
       <div class="profRow"><span class="k">Bando</span><span class="v">${fac}</span></div>
-      <div class="profRow"><span class="k">Puntos</span><span class="v">${un(r.points)}${protectedTarget ? " 🔰" : ""}</span></div>
+      <div class="profRow"><span class="k">Puntos</span><span class="v">${un(r.points)}${isNovice ? " 🔰" : ""}</span></div>
       <div class="profRow"><span class="k">Alianza</span><span class="v">${r.alliance ? "[" + esc(r.alliance) + "]" : "Sin alianza"}</span></div>
       ${canAtk ? `<div style="text-align:center;margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
         <button class="btn" id="profAtk">⚔️ Atacar</button>
         <button class="btn sm" id="profSpy" style="align-self:center">🔍 Espiar (150 💰)</button></div>` : ""}
-      ${protectedTarget && !r.me ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">🔰 Reino protegido por ser novato (menos de ' + un(prot) + ' puntos): no puedes atacarlo.</p>' : ""}
+      ${blockMsg && !r.me ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">' + blockMsg + '</p>' : ""}
       ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo ni espiarlo.</p>' : ""}`);
     const ab = document.getElementById("profAtk");
     if(ab) ab.onclick = () => this.openAttack(r);
@@ -1188,7 +1193,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · 🔰 protección novatos ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
@@ -1208,7 +1213,7 @@ const Game = {
       '<div class="admInputs"><label>Oro /h<input id="admThrG" type="number" min="0" max="100000" value="' + un(rt.gold) + '"></label>' +
       '<label>Madera /h<input id="admThrW" type="number" min="0" max="100000" value="' + un(rt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admThrO" type="number" min="0" max="100000" value="' + un(rt.ore) + '"></label></div>' +
-      '<p class="hint" style="margin-top:12px">Protección de novatos: los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados (0 = desactivada).</p>' +
+      '<p class="hint" style="margin-top:12px">Protección de novatos: (1) los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados; (2) nadie puede atacar a un reino que esté <b>estos puntos o más</b> por debajo suyo (evita que los fuertes machaquen a los débiles). Pon 0 para desactivarla.</p>' +
       '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
