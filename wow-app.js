@@ -137,23 +137,41 @@ const DECOS = (() => {
   return out;
 })();
 
-/* mapa: canvas 1200x2400 con DOS continentes (arriba/abajo) unidos por un puente.
-   Red de caminos = MST de cada continente + puente entre las dos fortalezas.
-   Nodos: 0=trono alto, 1..20=castillos alto, 21=trono bajo, 22..41=castillos bajo,
-          42..45=aldeas alto, 46..49=aldeas bajo */
-const MAPW = 1200, MAPH = 2400, MAPKX = 0.72, MAPKY = 0.60;
-const MAP_CONT = [[600, 600], [600, 1800]];
+/* mapa: canvas 2400x2400 con CUATRO continentes (2x2) unidos por 4 puentes.
+   Red de caminos = MST de cada continente + puentes entre los 4 tronos.
+   Nodos: 0=trono alto-izq,  1..20=castillos alto-izq,
+          21=trono bajo-izq, 22..41=castillos bajo-izq,
+          50=trono alto-der, 51..70=castillos alto-der,
+          75=trono bajo-der, 76..95=castillos bajo-der,
+          aldeas: 42..45 alto-izq, 46..49 bajo-izq, 71..74 alto-der, 96..99 bajo-der */
+const MAPW = 2400, MAPH = 2400, MAPKX = 0.72, MAPKY = 0.60;
+const MAP_CONT = [[600, 600], [600, 1800], [1800, 600], [1800, 1800]];
+const CONT_BASE = [0, 21, 50, 75];
 const ALDEA_POS = [[-560, -560], [560, -560], [560, 560], [-560, 560]];
-const ALDEA_NODES = [42, 43, 44, 45, 46, 47, 48, 49];
-const MAP_NODE = 50;
-function mapNodeXY(idx){
-  if(idx === 0) return MAP_CONT[0].slice();
-  if(idx === 21) return MAP_CONT[1].slice();
-  if(idx >= 1 && idx <= 20){ const s = SLOT_POS[idx - 1]; return [MAP_CONT[0][0] + s[0]*MAPKX, MAP_CONT[0][1] + s[1]*MAPKY]; }
-  if(idx >= 22 && idx <= 41){ const s = SLOT_POS[idx - 22]; return [MAP_CONT[1][0] + s[0]*MAPKX, MAP_CONT[1][1] + s[1]*MAPKY]; }
-  if(idx >= 42 && idx <= 45){ const a = ALDEA_POS[idx - 42]; return [MAP_CONT[0][0] + a[0]*MAPKX, MAP_CONT[0][1] + a[1]*MAPKY]; }
-  const a = ALDEA_POS[idx - 46]; return [MAP_CONT[1][0] + a[0]*MAPKX, MAP_CONT[1][1] + a[1]*MAPKY];
+const ALDEA_NODES = [42, 43, 44, 45, 46, 47, 48, 49, 71, 72, 73, 74, 96, 97, 98, 99];
+const MAP_NODE = 100;
+function nodeCont(idx){
+  if(idx >= 42 && idx <= 49) return idx <= 45 ? 0 : 1;
+  if(idx >= 71 && idx <= 74) return 2;
+  if(idx >= 96 && idx <= 99) return 3;
+  for(let c = CONT_BASE.length - 1; c >= 0; c--) if(idx >= CONT_BASE[c]) return c;
+  return 0;
 }
+function isAldeaNode(idx){ return ALDEA_NODES.indexOf(idx) >= 0; }
+function mapNodeXY(idx){
+  const c = nodeCont(idx), ctr = MAP_CONT[c], off = idx - CONT_BASE[c];
+  if(off === 0) return ctr.slice();                     /* trono */
+  const ai = ALDEA_NODES.indexOf(idx);
+  if(ai >= 0){ const a = ALDEA_POS[ai % 4]; return [ctr[0] + a[0]*MAPKX, ctr[1] + a[1]*MAPKY]; }
+  const s = SLOT_POS[off - 1];
+  return [ctr[0] + s[0]*MAPKX, ctr[1] + s[1]*MAPKY];
+}
+/* segundos de viaje: distancia en px del mapa entre dos nodos/castillos */
+function travelNodes(a, b){
+  const p = mapNodeXY(a), q = mapNodeXY(b);
+  return Math.max(20, Math.round(15 + Math.hypot(q[0]-p[0], q[1]-p[1]) / 20));
+}
+function travelSec(pa, pb){ return travelNodes(mapPosNode(pa), mapPosNode(pb)); }
 const MAP_ROADS = (() => {
   const adj = Array.from({ length: MAP_NODE }, () => []);
   const link = (a, b) => { adj[a].push(b); adj[b].push(a); };
@@ -175,17 +193,22 @@ const MAP_ROADS = (() => {
   };
   MAP_CONT.forEach((c, ci) => {
     const coords = [[c[0], c[1]]].concat(SLOT_POS.map(s => [c[0] + s[0]*MAPKX, c[1] + s[1]*MAPKY]));
-    mst(coords, ci === 0 ? 0 : 21);
+    mst(coords, CONT_BASE[ci]);
   });
-  link(0, 21); /* puente entre las dos fortalezas centrales */
-  /* aldeas: cada una enlazada al castillo mas cercano de su continente */
-  [[42,1],[43,4],[44,7],[45,10],[46,22],[47,25],[48,28],[49,31]].forEach(p => link(p[0], p[1]));
+  /* 4 puentes entre los tronos: izq (0-1), arriba (0-2), abajo (1-3), der (2-3) */
+  link(CONT_BASE[0], CONT_BASE[1]);
+  link(CONT_BASE[0], CONT_BASE[2]);
+  link(CONT_BASE[1], CONT_BASE[3]);
+  link(CONT_BASE[2], CONT_BASE[3]);
+  /* aldeas: cada una al castillo mas cercano de su continente (slots 0,3,6,9) */
+  ALDEA_NODES.forEach((n, i) => link(n, CONT_BASE[Math.floor(i / 4)] + 1 + [0, 3, 6, 9][i % 4]));
   return adj;
 })();
 function mapPosNode(pos){
-  const N = SLOT_POS.length, p = (((pos % (2*N)) + 2*N) % (2*N));
+  const N = SLOT_POS.length, T = N * MAP_CONT.length;
+  const p = (((pos % T) + T) % T);
   const c = Math.floor(p / N), s = p % N;
-  return c === 0 ? (s + 1) : (22 + s);
+  return CONT_BASE[c] + s + 1;
 }
 function mapNodePath(from, to){
   if(from === to) return [from];
@@ -568,18 +591,18 @@ const Game = {
     }catch(e){ toast(shortMsg(e), true); }
   },
   renderMap(){
-    const N = SLOT_POS.length;
+    const N = SLOT_POS.length, T = N * MAP_CONT.length;
     const list = this.mapList || [];
     const byKey = {};
     list.forEach(r => {
-      const p = ((r.pos % (2*N)) + 2*N) % (2*N);
+      const p = ((r.pos % T) + T) % T;
       const c = Math.floor(p / N), s = p % N, key = c*N + s;
       if(byKey[key] == null) byKey[key] = r;
     });
     let pins = "";
-    for(let c = 0; c < 2; c++){
+    for(let c = 0; c < MAP_CONT.length; c++){
       for(let s = 0; s < N; s++){
-        const node = (c === 0 ? (s + 1) : (22 + s));
+        const node = CONT_BASE[c] + s + 1;
         const pc = mapNodePct(node);
         const r = byKey[c*N + s];
         if(r){
@@ -598,7 +621,9 @@ const Game = {
     }
     const thrones = (this._thrones && this._thrones.length) ? this._thrones : [
       { node: 0,  name: "TRONO DE AZEROTH" },
-      { node: 21, name: "TRONO DE KALIMDOR" }
+      { node: 21, name: "TRONO DE KALIMDOR" },
+      { node: 50, name: "TRONO DE NORTHREND" },
+      { node: 75, name: "TRONO DE PANDARIA" }
     ];
     let throneHtml = "";
     thrones.forEach(t => {
@@ -616,7 +641,11 @@ const Game = {
       { node: 42, name: "Aldea del Alba" }, { node: 43, name: "Aldea del Bosque" },
       { node: 44, name: "Aldea de la Colina" }, { node: 45, name: "Aldea del Río" },
       { node: 46, name: "Aldea de la Costa" }, { node: 47, name: "Aldea del Valle" },
-      { node: 48, name: "Aldea del Desierto" }, { node: 49, name: "Aldea de la Niebla" }
+      { node: 48, name: "Aldea del Desierto" }, { node: 49, name: "Aldea de la Niebla" },
+      { node: 71, name: "Aldea del Amanecer" }, { node: 72, name: "Aldea del Roble" },
+      { node: 73, name: "Aldea del Pico" }, { node: 74, name: "Aldea del Raudal" },
+      { node: 96, name: "Aldea del Puerto" }, { node: 97, name: "Aldea de la Pradera" },
+      { node: 98, name: "Aldea de la Arena" }, { node: 99, name: "Aldea de la Nieve" }
     ];
     let aldeaHtml = "";
     aldeas.forEach(a => {
@@ -630,7 +659,7 @@ const Game = {
     });
     $("#tabMap").innerHTML = `
       <div class="mapWrap"><div class="mapInner" id="m2root">
-        <img class="mapImg" src="img/mapa.jpg?v=20261018l" alt="Mapa de Azeroth">
+        <img class="mapImg" src="img/mapa.jpg?v=20261018p" alt="Mapa de Azeroth">
         ${throneHtml}
         ${aldeaHtml}
         ${pins}
@@ -726,16 +755,11 @@ const Game = {
     const nl = document.getElementById("armyLayer"); if(!nl) return;
     (this._fxTokens || []).forEach(tk => { if(tk && tk.el && tk.el.parent !== nl) nl.appendChild(tk.el); });
   },
-  _nodePos(node){
-    if(node === 0) return 0;
-    if(node === 21) return 20;
-    return node >= 22 ? node - 2 : node - 1;
-  },
   showMarchFx(fromNode, toNode, icon, cls){
     const layer = document.getElementById("armyLayer");
     if(!layer || fromNode == null || toNode == null) return;
     const reach = mapNodePath(fromNode, toNode).map(mapNodePct);
-    const travel = Math.max(20, 15 + 3 * Math.abs(this._nodePos(fromNode) - this._nodePos(toNode)));
+    const travel = travelNodes(fromNode, toNode);
     const ms = travel * 1000;
     const el = document.createElement("div");
     el.className = "mArmy fx mine" + (cls ? " " + cls : "");
@@ -946,7 +970,7 @@ const Game = {
       return;
     }
     const my = (this.mapList || []).find(x => x.me);
-    const travel = (my && typeof r.pos === "number") ? Math.max(20, 15 + 3 * Math.abs(my.pos - r.pos)) : null;
+    const travel = (my && typeof r.pos === "number") ? travelSec(my.pos, r.pos) : null;
     const rows = troops.map(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key };
       return `<div class="atkRow"><span class="an">${m.e || "⚔️"} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
@@ -1609,7 +1633,7 @@ Game.openFort = async function(node, kind){
     const cb = document.getElementById("thrClaimBtn"); if(cb) cb.onclick = () => this.thrClaim(node);
   }catch(e){ toast(shortMsg(e), true); }
 };
-Game._fortKind = function(node){ return node >= 42 ? "aldea" : "trono"; };
+Game._fortKind = function(node){ return isAldeaNode(node) ? "aldea" : "trono"; };
 Game._thrTroops = function(){
   const payload = {};
   document.querySelectorAll('#modalBox input[id^="thq_"]').forEach(inp => {

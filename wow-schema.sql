@@ -705,9 +705,35 @@ returns integer language sql immutable as $$
                     when 'jinete' then 120 when 'mago' then 60
                     when 'paladin' then 90 when 'dragon' then 240 else 0 end
 $$;
+-- mapa 2400x2400 con 4 continentes: coordenadas de cada casilla de castillo
+-- (mismas constantes que el frontend: 20 slots x 4 continentes, escala 0.72/0.60)
+create or replace function public._wow_slot(p integer)
+returns double precision[] language sql immutable as $$
+  select case p
+    when 0 then '{-500,-380}'::double precision[]
+    when 1 then '{-180,-520}'   when 2 then '{140,-490}'   when 3 then '{430,-430}'
+    when 4 then '{600,-170}'    when 5 then '{620,120}'    when 6 then '{470,380}'
+    when 7 then '{200,520}'     when 8 then '{-90,560}'    when 9 then '{-380,500}'
+    when 10 then '{-600,250}'   when 11 then '{-620,-80}'  when 12 then '{-360,-150}'
+    when 13 then '{-140,-300}'  when 14 then '{120,-220}'  when 15 then '{350,-120}'
+    when 16 then '{330,170}'    when 17 then '{60,250}'    when 18 then '{-260,200}'
+    when 19 then '{250,-320}'
+    else null end
+$$;
+create or replace function public._wow_pos_xy(p_pos integer)
+returns double precision[] language plpgsql immutable as $$
+declare p integer; s double precision[]; ctr double precision[];
+begin
+  p := ((coalesce(p_pos, 0) % 80) + 80) % 80;   /* igual que el frontend: modulo 80 */
+  ctr := (case p / 20 when 0 then '{600,600}' when 1 then '{600,1800}'
+                      when 2 then '{1800,600}' else '{1800,1800}' end)::double precision[];
+  s := _wow_slot(p % 20);
+  return array[ctr[1] + s[1] * 0.72, ctr[2] + s[2] * 0.60];
+end $$;
 create or replace function public._wow_travel(a integer, b integer)
 returns integer language sql immutable as $$
-  select greatest(20, 15 + 3 * abs(coalesce(a,0) - coalesce(b,0)))
+  select greatest(20, 15 + round(sqrt(power(x1[1] - x2[1], 2) + power(x1[2] - x2[2], 2)) / 20.0)::integer)
+  from (select _wow_pos_xy(a) as x1, _wow_pos_xy(b) as x2) t
 $$;
 -- ruido determinista en [-0.5,0.5)
 create or replace function public._wow_noise(p_seed bigint, p_salt bigint)
@@ -3002,3 +3028,74 @@ begin
     'online', _wow_online_count());
 end $$;
 grant execute on function public.wow_state(text) to anon, authenticated;
+
+-- ================================================================
+-- APENDICE 4 CONTINENTES: mapa 2x2 + reparto de registros
+--   (generado desde wow-cont4.sql)
+-- ================================================================
+-- ================================================================
+-- APENDICE 4 CONTINENTES: mapa 2x2 (80 casillas de castillo)
+--   - Tronos y aldeas de los dos continentes nuevos (derecha).
+--   - Los registros nuevos se reparten entre el continente con menos
+--     reinos, para que los cuatro se pueblen por igual.
+--   - El reparto de casillas (80 = 4 x 20) es el mismo que usa el
+--     frontend: pos/20 = continente, pos%20 = slot.
+-- ================================================================
+
+alter table public.wow_thrones add column if not exists kind text not null default 'trono';
+
+-- tronos de la columna derecha
+insert into public.wow_thrones(node, name) values
+  (50, 'TRONO DE NORTHREND'), (75, 'TRONO DE PANDARIA')
+  on conflict (node) do nothing;
+
+-- aldeas de la columna derecha (4 por continente, como en los otros dos)
+insert into public.wow_thrones(node, name, kind) values
+  (71, 'Aldea del Amanecer', 'aldea'),
+  (72, 'Aldea del Roble',    'aldea'),
+  (73, 'Aldea del Pico',     'aldea'),
+  (74, 'Aldea del Raudal',   'aldea'),
+  (96, 'Aldea del Puerto',   'aldea'),
+  (97, 'Aldea de la Pradera','aldea'),
+  (98, 'Aldea de la Arena',  'aldea'),
+  (99, 'Aldea de la Nieve',  'aldea')
+  on conflict (node) do nothing;
+
+-- ---------- cuenta: hueco en el continente con menos reinos ----------
+create or replace function public.wow_register(p_name text, p_realm text, p_faction text, p_salt text, p_hash text, p_now bigint)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare vname text; vrealm text; vkey text; vfac text;
+       vpos integer; vc integer; vn integer; vs integer;
+begin
+  vname := btrim(coalesce(p_name,'')); vkey := _wow_key(vname); vrealm := btrim(coalesce(p_realm,''));
+  if length(vkey) < 2 then raise exception 'Escribe un nombre de rey (así entrarás después).'; end if;
+  if length(vrealm) < 2 then raise exception 'Escribe el nombre de tu reino.'; end if;
+  vfac := lower(btrim(coalesce(p_faction,'')));
+  if vfac not in ('alianza','horda') then raise exception 'Elige Alianza o Horda.'; end if;
+  if coalesce(p_salt,'') = '' or coalesce(p_hash,'') = '' then raise exception 'Faltan datos de seguridad.'; end if;
+  if exists(select 1 from wow_users where name_key = vkey) then
+    raise exception 'Ese nombre de rey ya está en uso. Prueba con otro.'; end if;
+
+  -- continente con menos reinos (los cuatro se pueblan parejos)
+  vc := 0; vn := -1;
+  for i in 0..3 loop
+    select count(*) into vs from wow_users where active and pos >= i*20 and pos < i*20 + 20;
+    if vn < 0 or vs < vn then vn := vs; vc := i; end if;
+  end loop;
+  -- primer hueco libre; si ese continente se lleno, paso al siguiente
+  vpos := null;
+  for i in 0..3 loop
+    for j in 0..19 loop
+      if not exists(select 1 from wow_users where active and pos = vc*20 + j) then
+        vpos := vc*20 + j; exit;
+      end if;
+    end loop;
+    exit when vpos is not null;
+    vc := (vc + 1) % 4;
+  end loop;
+  if vpos is null then raise exception 'El mundo está lleno: ya hay 80 reinos.'; end if;
+
+  insert into wow_users (id, name, name_key, faction, salt, hash, active, created, last_ms, gold, wood, ore, pos, alliance)
+  values (vkey, vrealm, vkey, vfac, p_salt, p_hash, true, p_now, p_now, 500, 500, 500, vpos, null);
+  return jsonb_build_object('ok', true, 'id', vkey, 'pos', vpos);
+end $$;

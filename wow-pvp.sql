@@ -93,9 +93,35 @@ returns integer language sql immutable as $$
                     when 'jinete' then 120 when 'mago' then 60
                     when 'paladin' then 90 when 'dragon' then 240 else 0 end
 $$;
+-- mapa 2400x2400 con 4 continentes: coordenadas de cada casilla de castillo
+-- (mismas constantes que el frontend: 20 slots x 4 continentes, escala 0.72/0.60)
+create or replace function public._wow_slot(p integer)
+returns double precision[] language sql immutable as $$
+  select case p
+    when 0 then '{-500,-380}'::double precision[]
+    when 1 then '{-180,-520}'   when 2 then '{140,-490}'   when 3 then '{430,-430}'
+    when 4 then '{600,-170}'    when 5 then '{620,120}'    when 6 then '{470,380}'
+    when 7 then '{200,520}'     when 8 then '{-90,560}'    when 9 then '{-380,500}'
+    when 10 then '{-600,250}'   when 11 then '{-620,-80}'  when 12 then '{-360,-150}'
+    when 13 then '{-140,-300}'  when 14 then '{120,-220}'  when 15 then '{350,-120}'
+    when 16 then '{330,170}'    when 17 then '{60,250}'    when 18 then '{-260,200}'
+    when 19 then '{250,-320}'
+    else null end
+$$;
+create or replace function public._wow_pos_xy(p_pos integer)
+returns double precision[] language plpgsql immutable as $$
+declare p integer; s double precision[]; ctr double precision[];
+begin
+  p := ((coalesce(p_pos, 0) % 80) + 80) % 80;   /* igual que el frontend: modulo 80 */
+  ctr := (case p / 20 when 0 then '{600,600}' when 1 then '{600,1800}'
+                      when 2 then '{1800,600}' else '{1800,1800}' end)::double precision[];
+  s := _wow_slot(p % 20);
+  return array[ctr[1] + s[1] * 0.72, ctr[2] + s[2] * 0.60];
+end $$;
 create or replace function public._wow_travel(a integer, b integer)
 returns integer language sql immutable as $$
-  select greatest(20, 15 + 3 * abs(coalesce(a,0) - coalesce(b,0)))
+  select greatest(20, 15 + round(sqrt(power(x1[1] - x2[1], 2) + power(x1[2] - x2[2], 2)) / 20.0)::integer)
+  from (select _wow_pos_xy(a) as x1, _wow_pos_xy(b) as x2) t
 $$;
 -- ruido determinista en [-0.5,0.5)
 create or replace function public._wow_noise(p_seed bigint, p_salt bigint)
