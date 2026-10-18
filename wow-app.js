@@ -1150,12 +1150,14 @@ const Game = {
       this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token });
       try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
       try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; this.throneRates = (g && g.rates) || this.throneRates; }catch(_){ this.throneShare = this.throneShare; }
+      try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
     }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
   },
   renderAdmin(){
     const el = $("#tabAdmin"), d = this.adm; if(!el) return;
+    const prot = (this.protect != null) ? this.protect : 1000;
     if(!d){ el.innerHTML = '<p class="empty">Sin datos.</p>'; return; }
     const users = d.users || [];
     const rows = users.map(u => {
@@ -1166,7 +1168,7 @@ const Game = {
           (u.active ? '' : '<span class="admTag ban">BANEADO</span>') +
           '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
         '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
-          (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + '</div>' +
+          (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + (u.points < prot ? ' · 🔰 protegido' : '') + '</div>' +
         '<div class="admActs">' +
           '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
           '<button class="btn sm" data-a="trp" data-id="' + esc(u.id) + '">⚔️ Tropas</button>' +
@@ -1179,7 +1181,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · ' + hora(d.now) + '</span>' +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · 🔰 protección novatos ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
@@ -1199,6 +1201,8 @@ const Game = {
       '<div class="admInputs"><label>Oro /h<input id="admThrG" type="number" min="0" max="100000" value="' + un(rt.gold) + '"></label>' +
       '<label>Madera /h<input id="admThrW" type="number" min="0" max="100000" value="' + un(rt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admThrO" type="number" min="0" max="100000" value="' + un(rt.ore) + '"></label></div>' +
+      '<p class="hint" style="margin-top:12px">Protección de novatos: los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados (0 = desactivada).</p>' +
+      '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
     $("#admGo").onclick = async () => {
@@ -1207,15 +1211,18 @@ const Game = {
       const rg = Number($("#admThrG").value);
       const rw = Number($("#admThrW").value);
       const ro = Number($("#admThrO").value);
+      const pr = Number($("#admProtIn").value);
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo debe estar entre 0 y 90.", "danger");
       if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción debe ser 0 o mayor.", "danger");
+      if(!(pr >= 0 && pr <= 1000000)) return notice($("#admMsg"), "La protección debe estar entre 0 y 1.000.000 puntos.", "danger");
       $("#admGo").disabled = true;
       try{
         await sbRpc("wow_admin_setfee", { p_token: this.me.token, p_fee: v });
         await sbRpc("wow_admin_setthrone", { p_token: this.me.token, p_pct: sv });
         await sbRpc("wow_admin_setthrones", { p_token: this.me.token, p_gold: rg, p_wood: rw, p_ore: ro });
-        this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro };
+        await sbRpc("wow_admin_setprotect", { p_token: this.me.token, p_pts: pr });
+        this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro }; this.protect = pr;
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };

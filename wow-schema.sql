@@ -981,7 +981,7 @@ revoke all on function public._wow_resolve() from public, anon, authenticated;
 -- ---------- enviar ataque ----------
 create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb;
+declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb; protect numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -990,6 +990,13 @@ begin
   if p_target = u.id then raise exception 'No puedes atacarte a ti mismo.'; end if;
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
+  protect := _wow_protect_below();
+  if protect > 0 then
+    if _wow_points(t.id) < protect then
+      raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
+    if _wow_points(u.id) < protect then
+      raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+  end if;
   if t.alliance is not null and t.alliance = u.alliance then
     raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;
   if p_troops is null or p_troops = '{}'::jsonb then raise exception 'Elige las tropas a enviar.'; end if;
@@ -1340,6 +1347,33 @@ begin
 end $$;
 grant execute on function public.wow_check(text) to anon, authenticated;
 
+-- proteccion de novatos: por debajo de N puntos no se puede atacar ni ser atacado
+create or replace function public._wow_protect_below()
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select coalesce((select val::numeric from wow_settings where key = 'protect_below'), 1000)
+$$;
+revoke all on function public._wow_protect_below() from public, anon, authenticated;
+
+create or replace function public.wow_protect_info()
+returns jsonb language sql stable security definer set search_path to 'public' as $$
+  select jsonb_build_object('points', _wow_protect_below())
+$$;
+grant execute on function public.wow_protect_info() to anon, authenticated;
+
+-- ajustar umbral de proteccion de novatos (solo admin)
+create or replace function public.wow_admin_setprotect(p_token text, p_pts numeric)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users;
+begin
+  a := _wow_admin(p_token);
+  if p_pts is null or p_pts < 0 or p_pts > 1000000 then
+    raise exception 'La protección debe estar entre 0 y 1.000.000 puntos.'; end if;
+  insert into wow_settings(key, val) values ('protect_below', p_pts::text)
+    on conflict (key) do update set val = excluded.val;
+  return jsonb_build_object('ok', true, 'points', p_pts);
+end $$;
+grant execute on function public.wow_admin_setprotect(text, numeric) to anon, authenticated;
+
 -- listado de todos los reinos
 create or replace function public.wow_admin_list(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
@@ -1495,7 +1529,7 @@ grant execute on function public.wow_leaderboard(text) to anon, authenticated;
 
 create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb;
+declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb; protect numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -1505,6 +1539,13 @@ begin
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
   if t.is_admin then raise exception 'No puedes atacar a un administrador.'; end if;
+  protect := _wow_protect_below();
+  if protect > 0 then
+    if _wow_points(t.id) < protect then
+      raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
+    if _wow_points(u.id) < protect then
+      raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+  end if;
   if t.alliance is not null and t.alliance = u.alliance then
     raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;
   if p_troops is null or p_troops = '{}'::jsonb then raise exception 'Elige las tropas a enviar.'; end if;
