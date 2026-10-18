@@ -85,6 +85,16 @@ returns integer language sql immutable as $$
                     when 'mago' then 18 when 'paladin' then 28 when 'dragon' then 55 else 10 end
 $$;
 
+-- ---------- nivel de cuartel requerido por tropa (una nueva cada 2 niveles) ----------
+create or replace function public._wow_treq(p_key text)
+returns integer language sql immutable as $$
+  select case p_key
+    when 'soldado' then 1 when 'arquero' then 3 when 'jinete' then 5
+    when 'mago' then 7 when 'paladin' then 9 when 'dragon' then 11
+    else 1 end
+$$;
+revoke all on function public._wow_treq(text) from public, anon, authenticated;
+
 revoke all on function public._wow_bcost(text, integer) from public, anon, authenticated;
 revoke all on function public._wow_btime(text, integer) from public, anon, authenticated;
 revoke all on function public._wow_bprod(text, integer) from public, anon, authenticated;
@@ -136,7 +146,8 @@ begin
   if coalesce(p_key,'') not in ('soldado','arquero','jinete','mago','paladin','dragon') then
     raise exception 'Tropa no válida.'; end if;
   select coalesce(max(level),0) into lv from wow_buildings where owner_id = u.id and bkey = 'cuartel';
-  if lv < 1 then raise exception 'Necesitas al menos un Cuartel para entrenar tropas.'; end if;
+  if lv < _wow_treq(p_key) then
+    raise exception 'Necesitas Cuartel nivel % para entrenar %.', _wow_treq(p_key), p_key; end if;
   qty := greatest(coalesce(p_qty,0), 0);
   if qty < 1 then raise exception 'Escribe cuántas tropas entrenar.'; end if;
   if qty > 100000 then raise exception 'Máximo 100.000 tropas a la vez.'; end if;

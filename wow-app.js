@@ -90,12 +90,12 @@ const BLD = {
   muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino" }
 };
 const TRP = {
-  soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica", img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
-  arquero: { e: "🏹", n: "Arquero", d: "Ataca a distancia", img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
-  jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida", img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
-  mago:    { e: "🔮", n: "Mago",    d: "Daño mágico", img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
-  paladin: { e: "🛡️", n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", img: "img/paladin.jpg", imgH: "img/horda/paladin.jpg" },
-  dragon:  { e: "🐉", n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg?v=2" }
+  soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica", req: 1,  img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
+  arquero: { e: "🏹", n: "Arquero", d: "Ataca a distancia", req: 3,  img: "img/arquero.jpeg", imgH: "img/horda/arquero.jpg" },
+  jinete:  { e: "🐎", n: "Jinete",  d: "Carga rápida", req: 5,  img: "img/jinete.jpg", imgH: "img/horda/jinete.jpg" },
+  mago:    { e: "🔮", n: "Mago",    d: "Daño mágico", req: 7,  img: "img/mago.jpg", imgH: "img/horda/mago.jpg" },
+  paladin: { e: "🛡️", n: "Paladín", d: "Guerrero sagrado, brutal contra magos y dragones", req: 9,  img: "img/paladin.jpg", imgH: "img/horda/paladin.jpg" },
+  dragon:  { e: "🐉", n: "Dragón",  d: "Bestia legendaria, arrasa infantería y magos", req: 11, img: "img/dragon.jpg", imgH: "img/horda/dragon.jpg?v=2" }
 };
 const CTR = {
   soldado: { up: "🐎 jinete",                  dn: "🏹 arquero y 🐉 dragón" },
@@ -483,15 +483,19 @@ const Game = {
     if(!unlocked){
       html += `<div class="empty">⚔️ Necesitas al menos un <b>Cuartel</b> (nivel 1) para entrenar tropas.<br><br>Sube el Cuartel en la pestaña 🏰 Edificios.</div>`;
     }
+    html += '<div class="hint" style="margin:6px 0 10px">🔒 El <b>Cuartel</b> desbloquea tropas: 🗡️ Soldado 1 · 🏹 Arquero 3 · 🐎 Jinete 5 · 🔮 Mago 7 · 🛡️ Paladín 9 · 🐉 Dragón 11.</div>';
     html += '<div class="grid">';
     (s.troops || []).forEach(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
       const c = CTR[t.key] || { up: "—", dn: "—" };
+      const req = (t.req != null) ? t.req : (m.req || 1);
+      const locked = unlocked && lvl < req;
+      const canTr = unlocked && !locked && !busy;
       const noG = s.gold < t.cost.gold, noW = s.wood < t.cost.wood, noO = s.ore < t.cost.ore;
       const img = facImg(m);
       const head = `<div class="cardTop">
           ${img ? "" : `<span class="emoji">${m.e}</span>`}
-          <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span></div>
+          <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span>${locked ? `<span class="lockTag">🔒 Cuartel ${req}</span>` : ""}</div>
           <div class="bDesc">${m.d}</div>
           <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
           <div class="bDesc" style="color:var(--green)">▸ vence a ${c.up}</div>
@@ -506,12 +510,13 @@ const Game = {
           </div>
         </div>
         <div class="troopRow">
-          <input id="qty_${t.key}" type="number" min="1" max="100000" value="" placeholder="Cantidad" ${(!unlocked || busy) ? "disabled" : ""}>
-          <button class="btn sm" data-tr="${t.key}" ${(!unlocked || busy) ? "disabled" : ""}>⚔️ Entrenar</button>
+          ${locked ? `<div class="bDesc" style="color:var(--bad);flex:1">🔒 Requiere Cuartel nivel ${req}</div>` : ""}
+          <input id="qty_${t.key}" type="number" min="1" max="100000" value="" placeholder="Cantidad" ${canTr ? "" : "disabled"}>
+          <button class="btn sm" data-tr="${t.key}" ${canTr ? "" : "disabled"}>⚔️ Entrenar</button>
         </div>`;
       html += img
-        ? `<div class="card hasPic"><div class="picBody">${head}</div><div class="picSide"><img class="troopImg" src="${img}" alt="${m.n}"${m.img && img !== m.img ? ` onerror="this.onerror=null;this.src='${m.img}';"` : ""}></div></div>`
-        : `<div class="card">${head}</div>`;
+        ? `<div class="card hasPic${locked ? " locked" : ""}"><div class="picBody">${head}</div><div class="picSide"><img class="troopImg" src="${img}" alt="${m.n}"${m.img && img !== m.img ? ` onerror="this.onerror=null;this.src='${m.img}';"` : ""}></div></div>`
+        : `<div class="card${locked ? " locked" : ""}">${head}</div>`;
     });
     html += "</div>";
     $("#tabTroop").innerHTML = html;

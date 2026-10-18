@@ -77,7 +77,7 @@ begin
     left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
   select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
              'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),
-             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t)) order by v.ord), '[]') into trs
+             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t), 'req', _wow_treq(v.t)) order by v.ord), '[]') into trs
     from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
     left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
   select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
