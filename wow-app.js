@@ -139,15 +139,20 @@ const DECOS = (() => {
 
 /* mapa: canvas 1200x2400 con DOS continentes (arriba/abajo) unidos por un puente.
    Red de caminos = MST de cada continente + puente entre las dos fortalezas.
-   Nodos: 0=trono alto, 1..20=castillos alto, 21=trono bajo, 22..41=castillos bajo */
+   Nodos: 0=trono alto, 1..20=castillos alto, 21=trono bajo, 22..41=castillos bajo,
+          42..45=aldeas alto, 46..49=aldeas bajo */
 const MAPW = 1200, MAPH = 2400, MAPKX = 0.72, MAPKY = 0.60;
 const MAP_CONT = [[600, 600], [600, 1800]];
-const MAP_NODE = 42;
+const ALDEA_POS = [[-130, -130], [130, -130], [-130, 130], [130, 130]];
+const ALDEA_NODES = [42, 43, 44, 45, 46, 47, 48, 49];
+const MAP_NODE = 50;
 function mapNodeXY(idx){
   if(idx === 0) return MAP_CONT[0].slice();
   if(idx === 21) return MAP_CONT[1].slice();
   if(idx >= 1 && idx <= 20){ const s = SLOT_POS[idx - 1]; return [MAP_CONT[0][0] + s[0]*MAPKX, MAP_CONT[0][1] + s[1]*MAPKY]; }
-  const s = SLOT_POS[idx - 22]; return [MAP_CONT[1][0] + s[0]*MAPKX, MAP_CONT[1][1] + s[1]*MAPKY];
+  if(idx >= 22 && idx <= 41){ const s = SLOT_POS[idx - 22]; return [MAP_CONT[1][0] + s[0]*MAPKX, MAP_CONT[1][1] + s[1]*MAPKY]; }
+  if(idx >= 42 && idx <= 45){ const a = ALDEA_POS[idx - 42]; return [MAP_CONT[0][0] + a[0]*MAPKX, MAP_CONT[0][1] + a[1]*MAPKY]; }
+  const a = ALDEA_POS[idx - 46]; return [MAP_CONT[1][0] + a[0]*MAPKX, MAP_CONT[1][1] + a[1]*MAPKY];
 }
 const MAP_ROADS = (() => {
   const adj = Array.from({ length: MAP_NODE }, () => []);
@@ -173,6 +178,8 @@ const MAP_ROADS = (() => {
     mst(coords, ci === 0 ? 0 : 21);
   });
   link(0, 21); /* puente entre las dos fortalezas centrales */
+  /* aldeas: cada una enlazada al trono de su continente */
+  [[42,0],[43,0],[44,0],[45,0],[46,21],[47,21],[48,21],[49,21]].forEach(p => link(p[0], p[1]));
   return adj;
 })();
 function mapPosNode(pos){
@@ -526,14 +533,14 @@ const Game = {
     try{
       const list = await sbRpc("wow_leaderboard", { p_token: this.me.token });
       this.rankLoaded = true;
-      let html = '<table class="rank"><tr><th>#</th><th>Reino</th><th>Bando</th><th>Puntos</th><th>Nv.</th><th>Tropas</th><th>👑</th></tr>';
+      let html = '<table class="rank"><tr><th>#</th><th>Reino</th><th>Bando</th><th>Puntos</th><th>Nv.</th><th>Tropas</th><th>👑</th><th>🏘️</th></tr>';
       (list || []).forEach((r, i) => {
         const cls = r.me ? ' class="me"' : "";
         const fac = r.faction === "horda"
           ? '<span class="rankFac" style="background:var(--red)">Horda</span>'
           : '<span class="rankFac" style="background:var(--blue)">Alianza</span>';
         html += `<tr${cls}><td>${i + 1}</td><td>${r.name}${r.me ? " (tú)" : ""}</td><td>${fac}</td>
-          <td><b>${un(r.points)}</b></td><td>${un(r.level_sum)}</td><td>${un(r.troops)}</td><td>${r.thrones ? "👑 " + un(r.thrones) : "—"}</td></tr>`;
+          <td><b>${un(r.points)}</b></td><td>${un(r.level_sum)}</td><td>${un(r.troops)}</td><td>${r.thrones ? "👑 " + un(r.thrones) : "—"}</td><td>${r.aldeas ? "🏘️ " + un(r.aldeas) : "—"}</td></tr>`;
       });
       html += "</table>";
       $("#tabRank").innerHTML = html || '<div class="empty">Aún no hay reinos en el ranking.</div>';
@@ -547,6 +554,8 @@ const Game = {
       try{ const p = await sbRpc("wow_protect_info", {}); this.protect = p && p.points; }catch(_){}
       try{ const ti = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = (ti && ti.thrones) || []; }
       catch(_){ this._thrones = this._thrones || []; }
+      try{ const ai = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this._aldeas = (ai && ai.aldeas) || []; }
+      catch(_){ this._aldeas = this._aldeas || []; }
       try{ this._events = await sbRpc("wow_events", { p_token: this.me.token }) || []; }
       catch(_){ this._events = this._events || []; }
       this.renderMap();
@@ -597,10 +606,27 @@ const Game = {
           <div class="mPinTag">${label}</div>
         </div>`;
     });
+    const aldeas = (this._aldeas && this._aldeas.length) ? this._aldeas : [
+      { node: 42, name: "Aldea del Alba" }, { node: 43, name: "Aldea del Bosque" },
+      { node: 44, name: "Aldea de la Colina" }, { node: 45, name: "Aldea del Río" },
+      { node: 46, name: "Aldea de la Costa" }, { node: 47, name: "Aldea del Valle" },
+      { node: 48, name: "Aldea del Desierto" }, { node: 49, name: "Aldea de la Niebla" }
+    ];
+    let aldeaHtml = "";
+    aldeas.forEach(a => {
+      const pc = mapNodePct(a.node);
+      const owned = !!a.holder;
+      aldeaHtml += `<div class="mPin aldea${owned ? " taken" : ""}" data-ald="${a.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
+          <div class="mPinCastle">${owned ? "🏘️" : "🛖"}</div>
+          <div class="mPinName">${esc(a.name)}</div>
+          <div class="mPinTag">${owned ? esc(a.holder_name || "?") : "Libre"}</div>
+        </div>`;
+    });
     $("#tabMap").innerHTML = `
       <div class="mapWrap"><div class="mapInner" id="m2root">
         <img class="mapImg" src="img/mapa.jpg" alt="Mapa de Azeroth">
         ${throneHtml}
+        ${aldeaHtml}
         ${pins}
         <div class="armyLayer" id="armyLayer"></div>
       </div></div>
@@ -610,6 +636,9 @@ const Game = {
     });
     $("#m2root").querySelectorAll(".mPin.throne").forEach(b => {
       b.onclick = () => this.openThrone(parseInt(b.dataset.thr, 10));
+    });
+    $("#m2root").querySelectorAll(".mPin.aldea").forEach(b => {
+      b.onclick = () => this.openFort(parseInt(b.dataset.ald, 10), "aldea");
     });
     this.keepFx();
     this.loadMarches();
@@ -1162,6 +1191,7 @@ const Game = {
       this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token });
       try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
       try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; this.throneRates = (g && g.rates) || this.throneRates; }catch(_){ this.throneShare = this.throneShare; }
+      try{ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this.aldeaShare = a && a.share; this.aldeaRates = (a && a.rates) || this.aldeaRates; }catch(_){ this.aldeaShare = this.aldeaShare; }
       try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
     }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
@@ -1193,7 +1223,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
@@ -1205,6 +1235,8 @@ const Game = {
     const f = (this.mktFee != null) ? this.mktFee : 20;
     const s = (this.throneShare != null) ? this.throneShare : 1;
     const rt = this.throneRates || { gold: 100, wood: 100, ore: 100 };
+    const al = (this.aldeaShare != null) ? this.aldeaShare : 1;
+    const alt = this.aldeaRates || { gold: 100, wood: 100, ore: 100 };
     modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Ajustes de economía</h2>' +
       '<p class="hint">La <b>comisión</b> se descuenta de lo que recibe el vendedor y se destruye. El <b>tributo</b> es el % del valor del trato que va al tesoro de cada trono con dueño (se descuenta de la comisión).</p>' +
       '<div class="admInputs"><label>Comisión mercado (%)<input id="admFeeIn" type="number" min="0" max="90" value="' + f + '"></label>' +
@@ -1213,6 +1245,12 @@ const Game = {
       '<div class="admInputs"><label>Oro /h<input id="admThrG" type="number" min="0" max="100000" value="' + un(rt.gold) + '"></label>' +
       '<label>Madera /h<input id="admThrW" type="number" min="0" max="100000" value="' + un(rt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admThrO" type="number" min="0" max="100000" value="' + un(rt.ore) + '"></label></div>' +
+      '<p class="hint" style="margin-top:12px">Las <b>aldeas</b> son poblados neutrales conquistables que se pintan en el mapa. Su tributo y producción son independientes de los tronos.</p>' +
+      '<div class="admInputs"><label>Tributo aldeas (%)<input id="admAldIn" type="number" min="0" max="90" value="' + al + '"></label></div>' +
+      '<p class="hint" style="margin-top:8px">Producción de recursos de cada aldea con dueño (por hora, se acumula en el tesoro).</p>' +
+      '<div class="admInputs"><label>Oro /h<input id="admAldG" type="number" min="0" max="100000" value="' + un(alt.gold) + '"></label>' +
+      '<label>Madera /h<input id="admAldW" type="number" min="0" max="100000" value="' + un(alt.wood) + '"></label>' +
+      '<label>Mineral /h<input id="admAldO" type="number" min="0" max="100000" value="' + un(alt.ore) + '"></label></div>' +
       '<p class="hint" style="margin-top:12px">Protección de novatos: (1) los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados; (2) nadie puede atacar a un reino que esté <b>estos puntos o más</b> por debajo suyo (evita que los fuertes machaquen a los débiles). Pon 0 para desactivarla.</p>' +
       '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
@@ -1223,18 +1261,27 @@ const Game = {
       const rg = Number($("#admThrG").value);
       const rw = Number($("#admThrW").value);
       const ro = Number($("#admThrO").value);
+      const av = Number($("#admAldIn").value);
+      const ag = Number($("#admAldG").value);
+      const aw = Number($("#admAldW").value);
+      const ao = Number($("#admAldO").value);
       const pr = Number($("#admProtIn").value);
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
-      if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo debe estar entre 0 y 90.", "danger");
-      if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción debe ser 0 o mayor.", "danger");
+      if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo de tronos debe estar entre 0 y 90.", "danger");
+      if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción de tronos debe ser 0 o mayor.", "danger");
+      if(!(av >= 0 && av <= 90)) return notice($("#admMsg"), "El tributo de aldeas debe estar entre 0 y 90.", "danger");
+      if(!(ag >= 0 && aw >= 0 && ao >= 0)) return notice($("#admMsg"), "La producción de aldeas debe ser 0 o mayor.", "danger");
       if(!(pr >= 0 && pr <= 1000000)) return notice($("#admMsg"), "La protección debe estar entre 0 y 1.000.000 puntos.", "danger");
       $("#admGo").disabled = true;
       try{
         await sbRpc("wow_admin_setfee", { p_token: this.me.token, p_fee: v });
         await sbRpc("wow_admin_setthrone", { p_token: this.me.token, p_pct: sv });
         await sbRpc("wow_admin_setthrones", { p_token: this.me.token, p_gold: rg, p_wood: rw, p_ore: ro });
+        await sbRpc("wow_admin_setaldeashare", { p_token: this.me.token, p_pct: av });
+        await sbRpc("wow_admin_setaldeas", { p_token: this.me.token, p_gold: ag, p_wood: aw, p_ore: ao });
         await sbRpc("wow_admin_setprotect", { p_token: this.me.token, p_pts: pr });
-        this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro }; this.protect = pr;
+        this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro };
+        this.aldeaShare = av; this.aldeaRates = { gold: ag, wood: aw, ore: ao }; this.protect = pr;
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
@@ -1432,12 +1479,13 @@ Game.mktTake = async function(id){
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
 };
-Game.thrEvent = function(h){
+Game.thrEvent = function(h, kind){
   const who = esc(h.actor_name || "?");
   const t = hora(h.created);
+  const noun = kind === "aldea" ? "la aldea" : "el trono";
   let txt = "";
-  if(h.kind === "take") txt = "🏯 <b>" + who + "</b> ocupó el trono libre.";
-  else if(h.kind === "conquest") txt = "⚔️ <b>" + who + "</b> conquistó el trono" + (h.detail && h.detail.from ? " (era de " + esc(h.detail.from) + ")" : "") + ".";
+  if(h.kind === "take") txt = "🏯 <b>" + who + "</b> ocupó " + noun + " libre.";
+  else if(h.kind === "conquest") txt = "⚔️ <b>" + who + "</b> conquistó " + noun + (h.detail && h.detail.from ? " (era de " + esc(h.detail.from) + ")" : "") + ".";
   else if(h.kind === "defended") txt = "🛡️ La defensa rechazó a <b>" + who + "</b>.";
   else if(h.kind === "reinforce") txt = "➕ <b>" + who + "</b> reforzó la guarnición.";
   else if(h.kind === "withdraw") txt = "➖ <b>" + who + "</b> retiró tropas de la guarnición.";
@@ -1445,17 +1493,23 @@ Game.thrEvent = function(h){
   else txt = "• " + esc(h.kind);
   return txt + ' <span style="opacity:.6">· ' + t + '</span>';
 };
-Game.openThrone = async function(node){
+Game.openThrone = function(node){ return this.openFort(node, "trono"); };
+Game.openFort = async function(node, kind){
+  kind = kind === "aldea" ? "aldea" : "trono";
+  const noun = kind === "aldea" ? "aldea" : "trono";
+  const icon = kind === "aldea" ? "🏘️" : "🏯";
   try{
-    const r = await sbRpc("wow_throne_info", { p_token: this.me.token });
-    this._thrones = r.thrones || [];
-    const t = this._thrones.find(x => x.node === node);
+    let r;
+    if(kind === "aldea"){ r = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this._aldeas = r.aldeas || []; }
+    else { r = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = r.thrones || []; }
+    const list = (kind === "aldea") ? this._aldeas : this._thrones;
+    const t = list.find(x => x.node === node);
     const me = this.me;
     const own = !!(t && t.holder === me.id);
     const troops = ((this.st && this.st.troops) || []).filter(x => x.qty > 0);
-    let body = '<h2 style="margin-top:0;color:var(--gold)">🏯 ' + esc(t ? t.name : "Trono") + '</h2>';
+    let body = '<h2 style="margin-top:0;color:var(--gold)">' + icon + ' ' + esc(t ? t.name : (kind === "aldea" ? "Aldea" : "Trono")) + '</h2>';
     if(!t){
-      body += '<div class="muted">Trono libre. Envía tropas para ocuparlo.</div>';
+      body += '<div class="muted">' + (kind === "aldea" ? "Aldea libre. Envía tropas para ocuparla." : "Trono libre. Envía tropas para ocuparlo.") + '</div>';
     }else{
       body += '<div class="row"><span>Dueño</span><span>' + esc(t.holder_name || 'Libre') + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
@@ -1478,7 +1532,7 @@ Game.openThrone = async function(node){
             '<button class="btn sm" data-thmax="' + x.key + '">MAX</button></div>';
         });
         body += '<div style="text-align:center;margin-top:10px">' +
-          '<button class="btn" id="thrAtkBtn">⚔️ ' + (t && t.holder ? 'Atacar para conquistar' : 'Ocupar el trono') + '</button></div>';
+          '<button class="btn" id="thrAtkBtn">⚔️ ' + (t && t.holder ? 'Atacar para conquistar' : (kind === "aldea" ? 'Ocupar la aldea' : 'Ocupar el trono')) + '</button></div>';
 
       }
     }else{
@@ -1513,7 +1567,7 @@ Game.openThrone = async function(node){
     }
     if(t && t.history && t.history.length){
       body += '<div class="muted" style="margin-top:12px">Historial</div><div class="thrHist">';
-      t.history.forEach(h => body += '<div class="thrEvent">' + this.thrEvent(h) + '</div>');
+      t.history.forEach(h => body += '<div class="thrEvent">' + this.thrEvent(h, kind) + '</div>');
       body += '</div>';
     }
     modal(body);
@@ -1535,6 +1589,7 @@ Game.openThrone = async function(node){
     const cb = document.getElementById("thrClaimBtn"); if(cb) cb.onclick = () => this.thrClaim(node);
   }catch(e){ toast(shortMsg(e), true); }
 };
+Game._fortKind = function(node){ return node >= 42 ? "aldea" : "trono"; };
 Game._thrTroops = function(){
   const payload = {};
   document.querySelectorAll('#modalBox input[id^="thq_"]').forEach(inp => {
@@ -1550,7 +1605,8 @@ Game.thrAtk = async function(node){
   try{
     const r = await sbRpc("wow_throne_attack", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
-    toast(r.free ? "🏯 ¡Ocupaste el trono!" : (r.win ? "👑 ¡Conquistaste el trono!" : "❌ La guarnición resistió."));
+    const al = this._fortKind(node) === "aldea";
+    toast(r.free ? (al ? "🛖 ¡Ocupaste la aldea!" : "🏯 ¡Ocupaste el trono!") : (r.win ? (al ? "🏘️ ¡Conquistaste la aldea!" : "👑 ¡Conquistaste el trono!") : "❌ La guarnición resistió."));
     await this.refresh(); await this.loadMap();
     this.showMarchFx(this._myNode(), node, "⚔️", "atk");
   }catch(e){ toast(shortMsg(e), true); }
@@ -1578,7 +1634,7 @@ Game._thrWithTroops = function(){
 Game.thrWith = async function(node){
   const payload = this._thrWithTroops();
   if(!Object.keys(payload).length) return toast("Elige al menos una tropa para retirar.", true);
-  if(!confirm("¿Retirar estas tropas de la guarnición? Si la dejas vacía, otro reino podrá ocupar el trono.")) return;
+  if(!confirm("¿Retirar estas tropas de la guarnición? Si la dejas vacía, otro reino podrá ocupar " + (this._fortKind(node) === "aldea" ? "la aldea." : "el trono."))) return;
   try{
     const r = await sbRpc("wow_throne_withdraw", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
