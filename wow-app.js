@@ -143,7 +143,7 @@ const DECOS = (() => {
           42..45=aldeas alto, 46..49=aldeas bajo */
 const MAPW = 1200, MAPH = 2400, MAPKX = 0.72, MAPKY = 0.60;
 const MAP_CONT = [[600, 600], [600, 1800]];
-const ALDEA_POS = [[-130, -130], [130, -130], [-130, 130], [130, 130]];
+const ALDEA_POS = [[-560, -560], [560, -560], [560, 560], [-560, 560]];
 const ALDEA_NODES = [42, 43, 44, 45, 46, 47, 48, 49];
 const MAP_NODE = 50;
 function mapNodeXY(idx){
@@ -178,8 +178,8 @@ const MAP_ROADS = (() => {
     mst(coords, ci === 0 ? 0 : 21);
   });
   link(0, 21); /* puente entre las dos fortalezas centrales */
-  /* aldeas: cada una enlazada al trono de su continente */
-  [[42,0],[43,0],[44,0],[45,0],[46,21],[47,21],[48,21],[49,21]].forEach(p => link(p[0], p[1]));
+  /* aldeas: cada una enlazada al castillo mas cercano de su continente */
+  [[42,1],[43,4],[44,7],[45,10],[46,22],[47,25],[48,28],[49,31]].forEach(p => link(p[0], p[1]));
   return adj;
 })();
 function mapPosNode(pos){
