@@ -624,7 +624,7 @@ const Game = {
     });
     $("#tabMap").innerHTML = `
       <div class="mapWrap"><div class="mapInner" id="m2root">
-        <img class="mapImg" src="img/mapa.jpg" alt="Mapa de Azeroth">
+        <img class="mapImg" src="img/mapa.jpg?v=20261018k" alt="Mapa de Azeroth">
         ${throneHtml}
         ${aldeaHtml}
         ${pins}
