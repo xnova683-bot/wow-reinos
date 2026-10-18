@@ -55,6 +55,11 @@ input:focus{outline:none; border-color:var(--gold2)}
 
 /* ---------- juego ---------- */
 #screenGame{align-items:stretch; padding:14px; max-width:920px; margin:0 auto; width:100%}
+.hudTop{position:relative; overflow:hidden; border:1px solid var(--line); border-radius:14px; margin-bottom:14px; padding:14px 14px 10px; min-height:250px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 8px 22px rgba(0,0,0,.45)}
+.hudTop .hudBg{position:absolute; inset:-24px; background:url(img/header.jpg) center/cover no-repeat; filter:blur(20px) brightness(.5) saturate(1.05); z-index:0}
+.hudTop .hudImg{position:absolute; inset:0; background:url(img/header.jpg) center/contain no-repeat; z-index:0}
+.hudTop .hudShade{position:absolute; inset:0; background:linear-gradient(180deg,rgba(8,6,3,.42) 0%,rgba(8,6,3,.14) 38%,rgba(8,6,3,.74) 100%); z-index:1}
+.hudTop > *:not(.hudBg):not(.hudImg):not(.hudShade){position:relative; z-index:2}
 .top{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px}
 .realmName{font-size:22px; color:var(--gold); text-shadow:0 1px 0 #000}
 .facBadge{font-size:12px; padding:3px 9px; border-radius:20px; color:#fff; margin-left:8px; vertical-align:middle}
@@ -353,6 +358,8 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 
 <!-- ============ JUEGO ============ -->
 <div id="screenGame" class="screen hidden">
+  <div class="hudTop">
+  <div class="hudBg"></div><div class="hudImg"></div><div class="hudShade"></div>
   <div class="top">
     <div><span class="realmName" id="gName"></span><span class="facBadge" id="gFac"></span><span class="allyBadge" id="gAlly"></span></div>
     <div class="topR">
@@ -387,6 +394,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <button data-tab="market">🛒 Mercado</button>
     <button data-tab="admin" id="tabBtnAdmin" class="hidden">🛡️ Gestión</button>
   </nav>
+  </div>
 
   <main>
     <section id="tabBld" class="tabpane"></section>
