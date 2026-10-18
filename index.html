@@ -67,6 +67,7 @@ input:focus{outline:none; border-color:var(--gold2)}
 .topR{display:flex; gap:8px; align-items:center}
 .pts{color:var(--dim); font-size:13px}
 .pts b{color:var(--gold)}
+.online{color:#7fe08a; font-size:13px; white-space:nowrap}
 .resBar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
 .res{flex:1; min-width:120px; background:linear-gradient(rgba(36,26,16,.62),rgba(26,18,9,.62)); backdrop-filter:blur(3px); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
 .ri{font-size:19px}
@@ -390,6 +391,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="top">
     <div><span class="realmName" id="gName"></span><span class="facBadge" id="gFac"></span><span class="allyBadge" id="gAlly"></span></div>
     <div class="topR">
+      <span class="online" id="gOnline">🟢 0 en línea</span>
       <span class="pts">Puntos: <b id="gPts">0</b></span>
       <button class="btn sm" id="btnAcct">👤 Cuenta</button>
       <button class="btn sm" id="btnLogout">Salir</button>
@@ -457,5 +459,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261018l"></script>
+    <script src="wow-app.js?v=20261018m"></script>
 </body></html>

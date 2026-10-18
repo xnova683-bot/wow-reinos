@@ -373,6 +373,7 @@ const Game = {
       this.stNow = Date.now();
       this.setAdminTab(!!this.st.is_admin || (this.me && this.me.id === "admin"));
       $("#gPts").textContent = un(this.st.points);
+      const onEl = $("#gOnline"); if(onEl) onEl.textContent = "🟢 " + un(this.st.online || 0) + " en línea";
       const ab = $("#gAlly");
       if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
       this.renderBld(); this.renderTroop(); this.tick();
@@ -1193,6 +1194,7 @@ const Game = {
       try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; this.throneRates = (g && g.rates) || this.throneRates; }catch(_){ this.throneShare = this.throneShare; }
       try{ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this.aldeaShare = a && a.share; this.aldeaRates = (a && a.rates) || this.aldeaRates; }catch(_){ this.aldeaShare = this.aldeaShare; }
       try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
+      try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
     }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
@@ -1223,7 +1225,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
+      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · 🟢 ' + un((this.st && this.st.online) || 0) + ' en línea (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
@@ -1253,6 +1255,8 @@ const Game = {
       '<label>Mineral /h<input id="admAldO" type="number" min="0" max="100000" value="' + un(alt.ore) + '"></label></div>' +
       '<p class="hint" style="margin-top:12px">Protección de novatos: (1) los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados; (2) nadie puede atacar a un reino que esté <b>estos puntos o más</b> por debajo suyo (evita que los fuertes machaquen a los débiles). Pon 0 para desactivarla.</p>' +
       '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
+      '<p class="hint" style="margin-top:12px">Reinos <b>en línea</b>: cuentan los reinos activos vistos en los últimos minutos indicados (el juego avisa cada 20 s mientras la pestaña está abierta).</p>' +
+      '<div class="admInputs"><label>En línea (minutos)<input id="admOnIn" type="number" min="1" max="60" value="' + un(this.onlineMin != null ? this.onlineMin : 5) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
     $("#admGo").onclick = async () => {
@@ -1266,12 +1270,14 @@ const Game = {
       const aw = Number($("#admAldW").value);
       const ao = Number($("#admAldO").value);
       const pr = Number($("#admProtIn").value);
+      const onm = Number($("#admOnIn").value);
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo de tronos debe estar entre 0 y 90.", "danger");
       if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción de tronos debe ser 0 o mayor.", "danger");
       if(!(av >= 0 && av <= 90)) return notice($("#admMsg"), "El tributo de aldeas debe estar entre 0 y 90.", "danger");
       if(!(ag >= 0 && aw >= 0 && ao >= 0)) return notice($("#admMsg"), "La producción de aldeas debe ser 0 o mayor.", "danger");
       if(!(pr >= 0 && pr <= 1000000)) return notice($("#admMsg"), "La protección debe estar entre 0 y 1.000.000 puntos.", "danger");
+      if(!(onm >= 1 && onm <= 60)) return notice($("#admMsg"), "El tiempo en línea debe estar entre 1 y 60 minutos.", "danger");
       $("#admGo").disabled = true;
       try{
         await sbRpc("wow_admin_setfee", { p_token: this.me.token, p_fee: v });
@@ -1280,8 +1286,10 @@ const Game = {
         await sbRpc("wow_admin_setaldeashare", { p_token: this.me.token, p_pct: av });
         await sbRpc("wow_admin_setaldeas", { p_token: this.me.token, p_gold: ag, p_wood: aw, p_ore: ao });
         await sbRpc("wow_admin_setprotect", { p_token: this.me.token, p_pts: pr });
+        await sbRpc("wow_admin_setonline", { p_token: this.me.token, p_min: onm });
         this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro };
         this.aldeaShare = av; this.aldeaRates = { gold: ag, wood: aw, ore: ao }; this.protect = pr;
+        this.onlineMin = onm;
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
