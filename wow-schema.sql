@@ -84,14 +84,14 @@ create table public.wow_troops(
   primary key (owner_id, tkey)
 );
 create table public.wow_queue(
-  owner_id text primary key references public.wow_users(id) on delete cascade,
+  owner_id text not null references public.wow_users(id) on delete cascade,
   kind text not null default '',
   ref text not null default '',
   qty integer not null default 0,
   unit_ms bigint not null default 0,
   start_ms bigint not null default 0,
-  finish_ms bigint not null default 0
-);
+  finish_ms bigint not null default 0,
+  primary key (owner_id, kind));
 create table public.wow_alliances(
   id text primary key,
   name text not null,
@@ -223,22 +223,20 @@ begin
   ms := (extract(epoch from now())*1000)::bigint;
   el := greatest(ms - u.last_ms, 0)::numeric;
 
-  select * into q from wow_queue where owner_id = p_owner;
-  if q is not null and q.owner_id is not null then
-    if q.kind = 'build' and q.finish_ms <= ms then
-      update wow_buildings set level = level + 1, finish_ms = 0
-       where owner_id = p_owner and bkey = q.ref;
-      delete from wow_queue where owner_id = p_owner;
-    elsif q.kind = 'train' and q.unit_ms > 0 then
-      done := least(q.qty, floor((ms - q.start_ms) / q.unit_ms));
-      if done > 0 then
-        insert into wow_troops(owner_id, tkey, qty) values (p_owner, q.ref, done)
-          on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
-        update wow_queue set qty = qty - done, start_ms = start_ms + done * unit_ms
-         where owner_id = p_owner and kind = 'train';
-        select * into q from wow_queue where owner_id = p_owner;
-        if q.qty <= 0 then delete from wow_queue where owner_id = p_owner; end if;
-      end if;
+  if exists (select 1 from wow_queue where owner_id = p_owner and kind = 'build' and finish_ms <= ms) then
+    update wow_buildings set level = level + 1, finish_ms = 0
+     where owner_id = p_owner and bkey = (select ref from wow_queue where owner_id = p_owner and kind = 'build');
+    delete from wow_queue where owner_id = p_owner and kind = 'build';
+  end if;
+  select * into q from wow_queue where owner_id = p_owner and kind = 'train';
+  if q is not null and q.owner_id is not null and q.unit_ms > 0 then
+    done := least(q.qty, floor((ms - q.start_ms) / q.unit_ms));
+    if done > 0 then
+      insert into wow_troops(owner_id, tkey, qty) values (p_owner, q.ref, done)
+        on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
+      update wow_queue set qty = qty - done, start_ms = start_ms + done * unit_ms
+       where owner_id = p_owner and kind = 'train';
+      delete from wow_queue where owner_id = p_owner and kind = 'train' and qty <= 0;
     end if;
   end if;
 
@@ -1091,14 +1089,14 @@ begin
              'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t)) order by v.ord), '[]') into trs
     from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
     left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
-  select jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
-           'start', q.start_ms, 'finish', q.finish_ms) into que
+  select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
+           'start', q.start_ms, 'finish', q.finish_ms) order by q.kind), '[]') into que
     from wow_queue q where q.owner_id = u.id;
   pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
        + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
   return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
     'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
-    'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms,
+    'buildings', blds, 'troops', trs, 'queue', que->0, 'queues', que, 'points', pts, 'now', ms,
     'alliance', u.alliance,
     'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
 end $$;
@@ -1255,8 +1253,8 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   u := _wow_tick(u.id);
-  if exists(select 1 from wow_queue where owner_id = u.id) then
-    raise exception 'Ya tienes algo en construcción.'; end if;
+  if exists(select 1 from wow_queue where owner_id = u.id and kind = 'build') then
+    raise exception 'Ya estás construyendo un edificio.'; end if;
   if coalesce(p_key,'') not in ('mina','aserradero','tesoreria','almacen','cuartel','muralla',
                                 'herreria','fortaleza','mercado') then
     raise exception 'Edificio no válido.'; end if;
@@ -1286,8 +1284,8 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   u := _wow_tick(u.id);
-  if exists(select 1 from wow_queue where owner_id = u.id) then
-    raise exception 'Ya estás entrenando o construyendo algo.'; end if;
+  if exists(select 1 from wow_queue where owner_id = u.id and kind = 'train') then
+    raise exception 'Ya estás entrenando tropas.'; end if;
   if coalesce(p_key,'') not in ('soldado','arquero','jinete','mago','paladin','dragon') then
     raise exception 'Tropa no válida.'; end if;
   select coalesce(max(level),0) into lv from wow_buildings where owner_id = u.id and bkey = 'cuartel';

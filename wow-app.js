@@ -391,18 +391,22 @@ const Game = {
     $("#rOre").textContent  = fmt(o);  $("#rOreH").textContent  = "+" + un(s.rate.ore) + "/h";
     $("#rCup").textContent = fmt(s.cup||0);  $("#rCupH").textContent = "+" + un(s.rate.cup||0) + "/h";
     $("#rCap").textContent  = un(s.capacity) + " máx.";
-    const q = s.queue, box = $("#queueBox");
-    if(q && q.finish){
+    const box = $("#queueBox");
+    const qs = (s.queues && s.queues.length) ? s.queues : (s.queue ? [s.queue] : []);
+    const active = qs.filter(q => q && q.finish);
+    if(active.length){
       box.classList.remove("hidden");
-      const label = q.kind === "build"
-        ? "🔨 Construyendo: " + (BLD[q.ref] ? BLD[q.ref].n : q.ref)
-        : "⚔️ Entrenando: " + (TRP[q.ref] ? q.qty + " " + TRP[q.ref].n + (q.qty === 1 ? "" : "s") : q.ref);
-      $("#qLabel").textContent = label;
-      const total = Math.max(1, q.finish - q.start), done = Math.max(0, now - q.start);
-      $("#qFill").style.width = Math.min(100, done / total * 100) + "%";
-      const rem = (q.finish - now) / 1000;
-      $("#qTime").textContent = rem > 0 ? "⏳ " + tfmt(rem) + " restantes" : "¡Listo! sincronizando…";
-      if(rem <= 0 && !this.syncing){ this.syncing = true; this.refresh().finally(() => { this.syncing = false; }); }
+      box.innerHTML = active.map(q => {
+        const label = q.kind === "build"
+          ? "🔨 Construyendo: " + (BLD[q.ref] ? BLD[q.ref].n : q.ref)
+          : "⚔️ Entrenando: " + (TRP[q.ref] ? q.qty + " " + TRP[q.ref].n + (q.qty === 1 ? "" : "s") : q.ref);
+        const total = Math.max(1, q.finish - q.start), done = Math.max(0, now - q.start);
+        const rem = (q.finish - now) / 1000;
+        return '<div class="qRow"><div class="qLabel">' + label + '</div>' +
+          '<div class="qBar"><div class="qFill" style="width:' + Math.min(100, done / total * 100) + '%"></div></div>' +
+          '<div class="qTime">' + (rem > 0 ? "⏳ " + tfmt(rem) + " restantes" : "¡Listo! sincronizando…") + '</div></div>';
+      }).join("");
+      if(active.some(q => (q.finish - now) <= 0) && !this.syncing){ this.syncing = true; this.refresh().finally(() => { this.syncing = false; }); }
     }else{
       box.classList.add("hidden");
     }
@@ -413,9 +417,14 @@ const Game = {
   },
 
   /* ----- edificios ----- */
+  hasQueue(kind){
+    const s = this.st; if(!s) return false;
+    const qs = (s.queues && s.queues.length) ? s.queues : (s.queue ? [s.queue] : []);
+    return qs.some(q => q && q.kind === kind && q.finish);
+  },
   renderBld(){
     const s = this.st; if(!s) return;
-    const busy = !!s.queue;
+    const busy = this.hasQueue("build");
     let html = '<div class="grid">';
     (s.buildings || []).forEach(b => {
       const m = BLD[b.key] || { e: "🏰", n: b.key, d: "" };
@@ -457,7 +466,7 @@ const Game = {
   /* ----- tropas ----- */
   renderTroop(){
     const s = this.st; if(!s) return;
-    const busy = !!s.queue;
+    const busy = this.hasQueue("train");
     const barr = (s.buildings || []).find(b => b.key === "cuartel");
     const lvl = barr ? barr.level : 0;
     const unlocked = lvl >= 1;

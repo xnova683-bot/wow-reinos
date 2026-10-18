@@ -100,8 +100,8 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   u := _wow_tick(u.id);
-  if exists(select 1 from wow_queue where owner_id = u.id) then
-    raise exception 'Ya tienes algo en construcción.'; end if;
+  if exists(select 1 from wow_queue where owner_id = u.id and kind = 'build') then
+    raise exception 'Ya estás construyendo un edificio.'; end if;
   if coalesce(p_key,'') not in ('mina','aserradero','tesoreria','almacen','cuartel','muralla',
                                 'herreria','fortaleza','mercado') then
     raise exception 'Edificio no válido.'; end if;
@@ -131,8 +131,8 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   u := _wow_tick(u.id);
-  if exists(select 1 from wow_queue where owner_id = u.id) then
-    raise exception 'Ya estás entrenando o construyendo algo.'; end if;
+  if exists(select 1 from wow_queue where owner_id = u.id and kind = 'train') then
+    raise exception 'Ya estás entrenando tropas.'; end if;
   if coalesce(p_key,'') not in ('soldado','arquero','jinete','mago','paladin','dragon') then
     raise exception 'Tropa no válida.'; end if;
   select coalesce(max(level),0) into lv from wow_buildings where owner_id = u.id and bkey = 'cuartel';

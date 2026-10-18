@@ -477,14 +477,14 @@ begin
              'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t)) order by v.ord), '[]') into trs
     from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
     left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
-  select jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
-           'start', q.start_ms, 'finish', q.finish_ms) into que
+  select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
+           'start', q.start_ms, 'finish', q.finish_ms) order by q.kind), '[]') into que
     from wow_queue q where q.owner_id = u.id;
   pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
        + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
   return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
     'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
-    'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms,
+    'buildings', blds, 'troops', trs, 'queue', que->0, 'queues', que, 'points', pts, 'now', ms,
     'alliance', u.alliance,
     'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
 end $$;

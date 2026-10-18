@@ -78,6 +78,7 @@ input:focus{outline:none; border-color:var(--gold2)}
 .qBar{height:10px; background:#0c0805; border-radius:6px; overflow:hidden; border:1px solid var(--line)}
 .qFill{height:100%; width:0%; background:linear-gradient(90deg,var(--gold2),var(--gold)); transition:width .4s linear}
 .qTime{text-align:right; font-size:12px; color:var(--dim); margin-top:5px; font-variant-numeric:tabular-nums}
+.qRow+.qRow{margin-top:10px; padding-top:10px; border-top:1px solid var(--line)}
 .gameTabs{display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap}
 .gameTabs button{flex:1; min-width:110px; padding:9px; background:rgba(18,12,7,.12); backdrop-filter:blur(3px); border:1px solid var(--line); color:var(--dim); border-radius:8px; cursor:pointer; font-size:14px}
 .gameTabs button:hover{border-color:var(--gold2); color:var(--txt)}
@@ -398,11 +399,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <div class="res cap"><span class="ri">📦</span><span class="rv" id="rCap">0</span></div>
   </div>
 
-  <div id="queueBox" class="queueBox hidden">
-    <div class="qLabel" id="qLabel"></div>
-    <div class="qBar"><div class="qFill" id="qFill"></div></div>
-    <div class="qTime" id="qTime"></div>
-  </div>
+  <div id="queueBox" class="queueBox hidden"></div>
 
   <nav class="gameTabs">
     <button data-tab="bld" class="on">🏰 Edificios</button>
@@ -455,5 +452,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261018d"></script>
+    <script src="wow-app.js?v=20261018e"></script>
 </body></html>
