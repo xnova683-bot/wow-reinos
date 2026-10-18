@@ -929,7 +929,7 @@ const Game = {
     $("#tabAlly").innerHTML = html;
     $("#alCreate").onclick = () => this.createAlly();
     $("#tabAlly").querySelectorAll("[data-join]").forEach(b => { b.onclick = () => this.joinAlly(b.dataset.join); });
-    await this.loadRank("#allyRank");
+    await this.loadAllyRank("#allyRank");
   },
   async renderAllyMine(id){
     const info = await sbRpc("wow_alliance_info", { p_token: this.me.token, p_id: id });
@@ -958,10 +958,10 @@ const Game = {
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
     await this.loadWars();
     await this.loadChat();
-    await this.loadRank("#allyRank");
+    await this.loadAllyRank("#allyRank");
     this.startChatPoll();
   },
-  async loadRank(sel){
+  async loadAllyRank(sel){
     try{
       const list = await sbRpc("wow_alliance_rank", { p_token: this.me.token }) || [];
       const box = document.querySelector(sel); if(!box) return;
