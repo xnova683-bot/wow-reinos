@@ -1586,7 +1586,13 @@ const Game = {
       '<p class="hint">Son reinos normales que juegan solos: producen, construyen, entrenan y atacan a otros reinos. ' +
       'Sirven para que el mundo siga con movimiento cuando hay poca gente conectada. Ocupan su casilla en el mapa y salen en el ranking y en el contador en línea como cualquier otro. ' +
       'Cada uno tiene su <b>nombre de reino</b> (el que se ve) y su <b>nombre de usuario</b> (con el que entra), y puedes reunirlos en una <b>alianza</b>: así luchan juntos, van a por el enemigo de la alianza y cada victoria suma para ella.</p>' +
-      '<label style="display:flex;align-items:center;gap:8px;margin:10px 0 4px"><input type="checkbox" id="botAuto"' + (auto ? ' checked' : '') + ' style="width:auto"> <span>Dejar que jueguen solos (un turno por minuto)</span></label>' +
+      '<div class="pactCard" style="margin:10px 0 4px' + (auto ? ';border-color:var(--green)' : '') + '">' +
+        '<div class="pactWho">' + (auto ? '🟢 Jugando y en línea' : '⚫ Apagados') + '</div>' +
+        '<div class="pactMeta">' + (auto
+          ? 'Los ' + un(list.length) + ' reinos automáticos juegan sin parar (cada uno a su ritmo) y se ven siempre en línea, como un jugador más.'
+          : 'Están de vacaciones: no juegan, no construyen ni atacan, y no aparecen en el contador en línea.') + '</div>' +
+        '<button class="btn' + (auto ? ' danger' : '') + '" id="botAuto">' + (auto ? '🌙 Apagar todos' : '🌞 Encender todos') + '</button>' +
+      '</div>' +
       (list.length ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="hint" style="margin:0">A todos:</span>' +
         '<select id="botAllAll" style="flex:1;min-width:140px"><option value="">— sacarlos de su alianza —</option>' + this.allianceOpts("") + '</select>' +
         '<button class="btn sm" id="botAllGo">Meterlos en la alianza</button></div>' : '') +
@@ -1606,10 +1612,16 @@ const Game = {
         (list.length ? '<button class="btn sm danger" id="botPurge">🗑 Quitarlos todos</button>' : '') +
       '</div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
-    const aa = $("#botAuto"); if(aa) aa.onchange = async () => {
-      try{ const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: aa.checked });
-        this.botAuto = !!r.auto; toast(r.auto ? "Jugarán solos cada minuto." : "Pausados todos."); }
-      catch(e){ aa.checked = !!this.botAuto; toast(shortMsg(e), true); }
+    const aa = $("#botAuto"); if(aa) aa.onclick = async () => {
+      const on = !this.botAuto;
+      aa.disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: on });
+        this.botAuto = !!r.auto;
+        toast(r.auto ? "🌞 " + un(r.bots || 0) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados.");
+        await this.admBotsPanel();
+      }
+      catch(e){ aa.disabled = false; toast(shortMsg(e), true); }
     };
     const ab = $("#botAdd"); if(ab) ab.onclick = async () => {
       const nm = ($("#botName").value || "").trim();
