@@ -73,7 +73,8 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0),
              'cost', _wow_bcost(v.k, coalesce(b.level,0)), 'time', _wow_btime(v.k, coalesce(b.level,0)),
              'prod', _wow_bprod(v.k, coalesce(b.level,0))) order by v.ord), '[]') into blds
-    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
+    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),
+                 ('herreria',6),('fortaleza',7),('mercado',8),('muralla',9)) v(k,ord)
     left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
   select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
              'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),

@@ -1195,7 +1195,7 @@ begin
     left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
   select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
              'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),
-             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t)) order by v.ord), '[]') into trs
+             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t), 'req', _wow_treq(v.t)) order by v.ord), '[]') into trs
     from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
     left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
   select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
@@ -1207,7 +1207,8 @@ begin
     'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
     'buildings', blds, 'troops', trs, 'queue', que->0, 'queues', que, 'points', pts, 'now', ms,
     'alliance', u.alliance,
-    'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
+    'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''),
+    'online', _wow_online_count());
 end $$;
 grant execute on function public.wow_state(text) to anon, authenticated;
 
@@ -1250,6 +1251,10 @@ begin
                         else _wow_pos_node(a.pos) end,
       'attacker', a.name, 'throne', (select name from wow_thrones th where th.node = f.node),
       'target', coalesce((select name from wow_thrones th where th.node = f.node), d.name),
+      'from', case when f.node is not null then null
+                   when f.state = 'outbound' then a.pos else coalesce(d.pos, a.pos) end,
+      'to',   case when f.node is not null then null
+                   when f.state = 'outbound' then coalesce(d.pos, a.pos) else a.pos end,
       'depart', f.leg_start_ms, 'arrive', f.arrive_ms
     ) order by f.arrive_ms)
     from wow_fleets f
@@ -2799,18 +2804,20 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   select coalesce(jsonb_agg(jsonb_build_object(
-      'name', s.name, 'faction', s.faction, 'me', s.me,
+      'name', s.name, 'faction', s.faction, 'me', s.me, 'created', s.created,
+      'alliance', s.atag,
       'points', s.lsum * 100 + s.tsum, 'level_sum', s.lsum, 'troops', s.tsum,
       'thrones', s.thrones, 'aldeas', s.aldeas)
-    order by s.thrones desc, s.aldeas desc, (s.lsum * 100 + s.tsum) desc), '[]'::jsonb)
+    order by s.thrones desc, s.aldeas desc, (s.lsum * 100 + s.tsum) desc, s.created), '[]'::jsonb)
     into out
     from (
-      select w.id, w.name, w.faction, (w.id = u.id) me,
+      select w.id, w.name, w.faction, w.created, (w.id = u.id) me, coalesce(al.tag,'') atag,
         coalesce((select sum(b.level) from wow_buildings b where b.owner_id = w.id),0) lsum,
         coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0) tsum,
         (select count(*) from wow_thrones th where th.holder = w.id and th.kind = 'trono') thrones,
         (select count(*) from wow_thrones th where th.holder = w.id and th.kind = 'aldea') aldeas
-      from wow_users w where w.active
+      from wow_users w left join wow_alliances al on al.id = w.alliance
+      where w.active and not coalesce(w.is_admin,false)
     ) s;
   return out;
 end $$;
@@ -3171,7 +3178,8 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0),
              'cost', _wow_bcost(v.k, coalesce(b.level,0)), 'time', _wow_btime(v.k, coalesce(b.level,0)),
              'prod', _wow_bprod(v.k, coalesce(b.level,0))) order by v.ord), '[]') into blds
-    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),('muralla',6)) v(k,ord)
+    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),
+                 ('herreria',6),('fortaleza',7),('mercado',8),('muralla',9)) v(k,ord)
     left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
   select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
              'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),

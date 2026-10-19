@@ -258,18 +258,20 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   select coalesce(jsonb_agg(jsonb_build_object(
-      'name', s.name, 'faction', s.faction, 'me', s.me,
+      'name', s.name, 'faction', s.faction, 'me', s.me, 'created', s.created,
+      'alliance', s.atag,
       'points', s.lsum * 100 + s.tsum, 'level_sum', s.lsum, 'troops', s.tsum,
       'thrones', s.thrones, 'aldeas', s.aldeas)
-    order by s.thrones desc, s.aldeas desc, (s.lsum * 100 + s.tsum) desc), '[]'::jsonb)
+    order by s.thrones desc, s.aldeas desc, (s.lsum * 100 + s.tsum) desc, s.created), '[]'::jsonb)
     into out
     from (
-      select w.id, w.name, w.faction, (w.id = u.id) me,
+      select w.id, w.name, w.faction, w.created, (w.id = u.id) me, coalesce(al.tag,'') atag,
         coalesce((select sum(b.level) from wow_buildings b where b.owner_id = w.id),0) lsum,
         coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0) tsum,
         (select count(*) from wow_thrones th where th.holder = w.id and th.kind = 'trono') thrones,
         (select count(*) from wow_thrones th where th.holder = w.id and th.kind = 'aldea') aldeas
-      from wow_users w where w.active
+      from wow_users w left join wow_alliances al on al.id = w.alliance
+      where w.active and not coalesce(w.is_admin,false)
     ) s;
   return out;
 end $$;
