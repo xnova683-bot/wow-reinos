@@ -398,7 +398,7 @@ const Game = {
       $("#gPts").textContent = un(this.st.points);
       const onEl = $("#gOnline"); if(onEl) onEl.textContent = "🟢 " + un(this.st.online || 0) + " en línea";
       const ab = $("#gAlly");
-      if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
+      if(ab){ ab.textContent = this.st.ally_tag ? (this.st.ally_emblem || "") + "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
       if(this.st.ally_tag && (!this._diploTs || Date.now() - this._diploTs > 60000)) this.loadDiplo(true);
       this.renderBld(); this.renderTroop(); this.tick();
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
@@ -1234,7 +1234,7 @@ const Game = {
       if(!list.length){ box.innerHTML = '<div class="empty" style="padding:12px">Sin alianzas todavía.</div>'; return; }
       box.innerHTML = list.map((a, i) => `<div class="rankRow${a.mine ? " mine" : ""}">
         <span class="rankPos">${i + 1}</span>
-        <span class="rankTag">[${esc(a.tag)}]</span>
+        <span class="rankTag">${esc(a.emblem || "")}[${esc(a.tag)}]</span>
         <span class="rankName">${esc(a.name)}</span>
         <span class="rankStat">👥 ${a.members}</span>
         <span class="rankStat">⭐ ${un(a.points)}</span>
@@ -1262,14 +1262,15 @@ const Game = {
     const dur = h => !h ? "sin caducidad" : (h + " h");
     const rtag = p => (p.i_am_a ? p.b_tag : p.a_tag);
     const rname = p => (p.i_am_a ? p.b_name : p.a_name);
+    const ricon = p => (p.i_am_a ? (p.b_icon || "") : (p.a_icon || ""));
     let html = '<div class="secSub">⚔️ Guerras activas</div>';
     if(!wars.length) html += '<div class="empty" style="padding:10px">No hay guerras activas. Reina la paz en Azeroth.</div>';
     wars.forEach(w => {
       const hrs = Math.max(0, Math.ceil((w.ends - now) / 3600000));
       html += `<div class="warCard${w.mine ? " mine" : ""}">
-        <div class="warSide">[${esc(w.a_tag)}] ${esc(w.a_name)}</div>
+        <div class="warSide">${esc(w.a_icon || "")}[${esc(w.a_tag)}] ${esc(w.a_name)}</div>
         <div class="warScore">${w.a_score} : ${w.b_score}</div>
-        <div class="warSide r">${esc(w.b_name)} [${esc(w.b_tag)}]</div>
+        <div class="warSide r">${esc(w.b_name)} ${esc(w.b_icon || "")}[${esc(w.b_tag)}]</div>
         <div class="warFoot">⏳ ${hrs} h${w.mine && isLeader ? ' · <button class="btn sm danger" data-surrender="' + w.id + '">Rendirse</button>' : ""}</div>
       </div>`;
     });
@@ -1277,18 +1278,18 @@ const Game = {
     if(!pacts.length) html += '<div class="empty" style="padding:10px">Sin pactos. Con un pacto vigente no se puede atacar ni espiar a esa alianza.</div>';
     pacts.forEach(p => {
       const left = p.ends > 0 ? (Math.max(0, Math.ceil((p.ends - now) / 3600000)) + " h restantes") : "sin caducidad";
-      html += `<div class="pactCard"><div class="pactWho">[${esc(rtag(p))}] ${esc(rname(p))}</div>
+      html += `<div class="pactCard"><div class="pactWho">${esc(ricon(p))}[${esc(rtag(p))}] ${esc(rname(p))}</div>
         <div class="pactMeta">⏳ ${left} · duración ${dur(p.hours)}</div>
         ${isLeader ? '<button class="btn sm danger" data-pactcancel="' + p.id + '">Cancelar pacto</button>' : ""}</div>`;
     });
     if(oin.length || oout.length) html += '<div class="secSub">📨 Ofertas de pacto</div>';
     oin.forEach(p => {
-      html += `<div class="pactCard"><div class="pactWho">[${esc(rtag(p))}] ${esc(rname(p))} propone ${dur(p.hours)}</div>
+      html += `<div class="pactCard"><div class="pactWho">${esc(ricon(p))}[${esc(rtag(p))}] ${esc(rname(p))} propone ${dur(p.hours)}</div>
         <div class="pactMeta">Caduca en ${Math.max(1, Math.ceil((p.offer_ends - now) / 3600000))} h</div>
         ${isLeader ? '<button class="btn sm" data-pactok="' + p.id + '">✅ Aceptar</button><button class="btn sm danger" data-pactno="' + p.id + '">❌ Rechazar</button>' : '<span class="pactMeta">Solo tu líder puede responder.</span>'}</div>`;
     });
     oout.forEach(p => {
-      html += `<div class="pactCard"><div class="pactWho">Propuesta enviada a [${esc(rtag(p))}] ${esc(rname(p))}</div>
+      html += `<div class="pactCard"><div class="pactWho">Propuesta enviada a ${esc(ricon(p))}[${esc(rtag(p))}] ${esc(rname(p))}</div>
         <div class="pactMeta">${dur(p.hours)} · esperando respuesta del líder rival</div>
         ${isLeader ? '<button class="btn sm danger" data-pactcancel="' + p.id + '">Retirar oferta</button>' : ""}</div>`;
     });
@@ -1299,13 +1300,13 @@ const Game = {
       const list = (this._allyList || []).filter(a => !a.mine);
       if(list.length){
         html += `<div class="warDecl"><span class="pactMeta" style="align-self:center">Pactar</span><select id="pactTarget">` +
-          list.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}${busy.indexOf(a.tag) >= 0 ? " (en curso)" : ""}</option>`).join("") +
+          list.map(a => `<option value="${esc(a.id)}">${esc(a.emblem || "")}[${esc(a.tag)}] ${esc(a.name)}${busy.indexOf(a.tag) >= 0 ? " (en curso)" : ""}</option>`).join("") +
           `</select><select id="pactHours"><option value="24">24 h</option><option value="48">48 h</option><option value="72">72 h</option><option value="0">sin caducidad</option></select>` +
           `<button class="btn sm" id="pactGo">🤝 Proponer</button></div>`;
         const warTargets = list.filter(a => atWar.indexOf(a.tag) < 0);
         if(warTargets.length){
           html += `<div class="warDecl"><span class="pactMeta" style="align-self:center">Guerra</span><select id="warTarget">` +
-            warTargets.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}</option>`).join("") +
+            warTargets.map(a => `<option value="${esc(a.id)}">${esc(a.emblem || "")}[${esc(a.tag)}] ${esc(a.name)}</option>`).join("") +
             `</select><button class="btn sm danger" id="warGo">⚔️ Declarar guerra</button></div>`;
         }
       }
@@ -1399,7 +1400,7 @@ const Game = {
       const box = document.getElementById("gchatMsgs"); if(!box) return;
       box.innerHTML = (msgs && msgs.length)
         ? msgs.map(m => '<div class="cmsg' + (m.me ? " me" : "") + '"><span class="cwho">' + (m.faction === "horda" ? "⚔️" : "🛡️") + ' ' +
-            esc(m.tag ? "[" + m.tag + "] " : "") + esc(m.name) + ':</span> ' + esc(m.msg) +
+            esc((m.tag ? (m.emblem || "") + "[" + m.tag + "] " : "")) + esc(m.name) + ':</span> ' + esc(m.msg) +
             ' <span class="ctime">' + hora(m.created) + '</span>' +
             (this.me.is_admin ? ' <button class="btn sm danger" data-gdel="' + m.id + '" title="Borrar mensaje">🗑️</button>' : "") + '</div>').join("")
         : '<div class="empty" style="padding:14px">Sé el primero en escribir.</div>';
