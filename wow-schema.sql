@@ -3292,6 +3292,11 @@ begin
   vname := btrim(coalesce(p_name,'')); vkey := _wow_key(vname); vrealm := btrim(coalesce(p_realm,''));
   if length(vkey) < 2 then raise exception 'Escribe un nombre de rey (así entrarás después).'; end if;
   if length(vrealm) < 2 then raise exception 'Escribe el nombre de tu reino.'; end if;
+  -- los nombres se ven en el ranking, el mapa y el chat: nada de etiquetas ni símbolos raros
+  if vname ~ '[<>&"''\\]' or vname ~ '[[:cntrl:]]' or length(vname) > 24 then
+    raise exception 'El nombre de rey solo puede llevar letras, números, espacios y guiones.'; end if;
+  if vrealm ~ '[<>&"''\\]' or vrealm ~ '[[:cntrl:]]' or length(vrealm) > 24 then
+    raise exception 'El nombre del reino solo puede llevar letras, números, espacios y guiones.'; end if;
   vfac := lower(btrim(coalesce(p_faction,'')));
   if vfac not in ('alianza','horda') then raise exception 'Elige Alianza o Horda.'; end if;
   if coalesce(p_salt,'') = '' or coalesce(p_hash,'') = '' then raise exception 'Faltan datos de seguridad.'; end if;
@@ -3487,6 +3492,8 @@ begin
   nm := btrim(coalesce(p_name,''));
   if length(nm) < 2 then raise exception 'Escribe el nombre del reino.'; end if;
   if length(nm) > 20 then raise exception 'El nombre del reino no puede pasar de 20 letras.'; end if;
+  if nm ~ '[<>&"''\\]' or nm ~ '[[:cntrl:]]' then
+    raise exception 'El nombre del reino solo puede llevar letras, números, espacios y guiones.'; end if;
   update wow_users set name = nm where id = p_id;
   return jsonb_build_object('ok', true, 'name', nm);
 end $$;

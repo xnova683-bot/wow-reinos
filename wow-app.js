@@ -568,7 +568,7 @@ const Game = {
         const fac = r.faction === "horda"
           ? '<span class="rankFac" style="background:var(--red)">Horda</span>'
           : '<span class="rankFac" style="background:var(--blue)">Alianza</span>';
-        html += `<tr${cls}><td>${i + 1}</td><td>${r.name}${r.me ? " (tú)" : ""}</td><td>${fac}</td>
+        html += `<tr${cls}><td>${i + 1}</td><td>${esc(r.name)}${r.me ? " (tú)" : ""}</td><td>${fac}</td>
           <td><b>${un(r.points)}</b></td><td>${un(r.level_sum)}</td><td>${un(r.troops)}</td><td>${r.thrones ? "👑 " + un(r.thrones) : "—"}</td><td>${r.aldeas ? "🏘️ " + un(r.aldeas) : "—"}</td></tr>`;
       });
       html += "</table>";

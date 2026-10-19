@@ -159,6 +159,8 @@ begin
   nm := btrim(coalesce(p_name,''));
   if length(nm) < 2 then raise exception 'Escribe el nombre del reino.'; end if;
   if length(nm) > 20 then raise exception 'El nombre del reino no puede pasar de 20 letras.'; end if;
+  if nm ~ '[<>&"''\\]' or nm ~ '[[:cntrl:]]' then
+    raise exception 'El nombre del reino solo puede llevar letras, números, espacios y guiones.'; end if;
   update wow_users set name = nm where id = p_id;
   return jsonb_build_object('ok', true, 'name', nm);
 end $$;
