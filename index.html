@@ -167,6 +167,12 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .pactCard .pactWho{font-size:13px; color:var(--txt)}
 .pactCard .pactMeta{font-size:11px; color:var(--dim)}
 .pactCard button{align-self:flex-start}
+.embBox{display:flex;flex-direction:column;gap:6px}
+.embGrid{display:flex;flex-wrap:wrap;gap:4px}
+.embBtn{background:#0f130f;border:1px solid #2f5a34;border-radius:8px;font-size:18px;line-height:1;padding:6px 8px;cursor:pointer;opacity:.72}
+.embBtn:hover{opacity:1}
+.embBtn.on{border-color:var(--gold);opacity:1}
+.embBtn:disabled{cursor:default}
 .allyRank{display:flex; flex-direction:column; gap:5px}
 .rankRow{display:flex; align-items:center; gap:8px; background:#150f09; border:1px solid var(--line); border-radius:7px; padding:6px 10px; font-size:13px}
 .rankRow.mine{border-color:var(--gold2)}
@@ -473,5 +479,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261019g"></script>
+    <script src="wow-app.js?v=20261019h"></script>
 </body></html>

@@ -630,7 +630,7 @@ const Game = {
     thrones.forEach(t => {
       const pc = mapNodePct(t.node);
       const owned = !!t.holder;
-      const crown = t.holder_ally ? "🏛️" : owned ? "👑" : "🏯";
+      const crown = t.ally_icon || (t.holder_ally ? "🏛️" : owned ? "👑" : "🏯");
       const label = owned ? esc(t.ally || t.holder_name || "?") : "Libre";
       throneHtml += `<div class="mPin throne${owned ? " taken" : ""}" data-thr="${t.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
           <div class="mPinCastle">${crown}</div>
@@ -653,7 +653,7 @@ const Game = {
       const pc = mapNodePct(a.node);
       const owned = !!a.holder;
       aldeaHtml += `<div class="mPin aldea${owned ? " taken" : ""}" data-ald="${a.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
-          <div class="mPinCastle">${a.holder_ally ? "🏛️" : owned ? "🏘️" : "🛖"}</div>
+          <div class="mPinCastle">${a.ally_icon || (a.holder_ally ? "🏛️" : owned ? "🏘️" : "🛖")}</div>
           <div class="mPinName">${esc(a.name)}</div>
           <div class="mPinTag">${owned ? esc(a.ally || a.holder_name || "?") : "Libre"}</div>
         </div>`;
@@ -1106,8 +1106,10 @@ const Game = {
     try{ v = await sbRpc("wow_alliance_vault", { p_token: this.me.token }) || v; }catch(_){}
     this._vault = v;
     let html = `<div class="allyBox">
-      <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
+      <div class="allyHead"><span class="allyTagBig">${esc(info.emblem || "")}[${esc(info.tag)}]</span>${esc(info.name)}</div>
       <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
+      <div class="secTitle" style="margin-top:0">🎨 Emblema del clan</div>
+      <div id="embBox" class="embBox"></div>
       <div class="secTitle" style="margin-top:0">👥 Miembros (${info.members.length}/${ALLY_MAX})</div>
       ${isLeader && info.members.length > 1 ? '<p class="hint" style="margin:0 0 6px">Eres el líder: puedes expulsar a quien no cumpla.</p>' : ''}
       <div class="members">`;
@@ -1130,6 +1132,7 @@ const Game = {
       <div id="allyRank" class="allyRank"></div>
     </div>`;
     $("#tabAlly").innerHTML = html;
+    this.renderEmblem(info);
     $("#tabAlly").querySelectorAll("[data-kick]").forEach(b => { b.onclick = () => this.kickMember(b.dataset.kick); });
     $("#tabAlly").querySelectorAll("[data-vsh]").forEach(inp => { inp.onchange = () => this.setShare(inp.dataset.vsh, inp.value); });
     const vg = document.getElementById("vaultGo"); if(vg) vg.onclick = () => this.distributeVault();
@@ -1141,6 +1144,33 @@ const Game = {
     await this.loadChat();
     await this.loadAllyRank("#allyRank");
     this.startChatPoll();
+  },
+  renderEmblem(info){
+    const box = document.getElementById("embBox"); if(!box) return;
+    const cur = info.emblem || "";
+    const list = info.emblems || [];
+    const leader = !!info.is_leader;
+    let h = '<p class="hint" style="margin:0 0 6px">' + (leader
+      ? 'Elige el icono que verán todos sobre las aldeas y fortalezas conquistadas por tu alianza.'
+      : 'Es el icono que sale sobre las aldeas y fortalezas conquistadas por tu alianza (lo elige ' + esc(info.leader || "el líder") + ').') + '</p>';
+    h += '<div class="embGrid">' + list.map(ic =>
+      '<button class="embBtn' + (ic === cur ? ' on' : '') + '"' + (leader ? '' : ' disabled') + ' data-emb="' + esc(ic) + '">' + ic + '</button>').join("") + '</div>';
+    h += '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<span class="muted">' + (cur ? 'Ahora: <b>' + cur + '</b>' : 'Ahora: 🏛️ (por defecto)') + '</span>' +
+      (leader ? '<button class="btn sm' + (cur ? ' danger' : '') + '" id="embClear"' + (cur ? '' : ' disabled') + '>🧹 Quitar</button>' : '') + '</div>';
+    box.innerHTML = h;
+    box.querySelectorAll("[data-emb]").forEach(b => { b.onclick = () => this.setEmblem(b.dataset.emb); });
+    const cl = document.getElementById("embClear");
+    if(cl) cl.onclick = () => this.setEmblem("");
+  },
+  async setEmblem(ic){
+    try{
+      const r = await sbRpc("wow_alliance_emblem", { p_token: this.me.token, p_icon: ic });
+      if(this._allyInfo) this._allyInfo.emblem = r.emblem;
+      toast(r.emblem ? "🎨 Emblema del clan: " + r.emblem : "🧹 Emblema quitado.");
+      this.renderEmblem(this._allyInfo || {});
+      if(this.tab === "map") this.loadMap();
+    }catch(e){ toast(shortMsg(e), true); }
   },
   vaultHtml(v){
     const vl = (v && v.vault) || {};
@@ -1933,8 +1963,8 @@ Game.openFort = async function(node, kind){
     if(!t){
       body += '<div class="muted">' + (kind === "aldea" ? "Aldea libre. Envía tropas para ocuparla." : "Trono libre. Envía tropas para ocuparlo.") + '</div>';
     }else{
-      body += '<div class="row"><span>Dueño</span><span>' + (t.holder_ally ? '🏛️ ' + esc(t.ally || 'Alianza') : esc(t.holder_name || 'Libre')) + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
-      if(t.holder_ally && t.mine) body += '<div class="muted" style="margin-top:4px">🏛️ Este lugar es de tu alianza: los recursos que reclames van al arcón común.</div>';
+      body += '<div class="row"><span>Dueño</span><span>' + (t.holder_ally ? (t.ally_icon || '🏛️') + ' ' + esc(t.ally || 'Alianza') : esc(t.holder_name || 'Libre')) + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
+      if(t.holder_ally && t.mine) body += '<div class="muted" style="margin-top:4px">' + (t.ally_icon || '🏛️') + ' Este lugar es de tu alianza: los recursos que reclames van al arcón común.</div>';
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
         body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
