@@ -173,6 +173,14 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .embBtn:hover{opacity:1}
 .embBtn.on{border-color:var(--gold);opacity:1}
 .embBtn:disabled{cursor:default}
+.mktGrid{display:flex;flex-direction:column;gap:4px}
+.mktPrice{display:flex;align-items:center;gap:5px;background:#0f130f;border:1px solid #2f5a34;border-radius:8px;padding:4px 8px;font-size:12px}
+.mktPrice.off{border-color:#333;opacity:.6}
+.mktPrice .mpName{flex:1;min-width:96px}
+.mktPrice input{width:74px;padding:3px 5px;font-size:12px;text-align:center}
+.mktPrice .mpDash{color:var(--dim)}
+.mktPrice .mpState{width:58px;text-align:right;font-size:11px;color:var(--dim)}
+.mktPrice.off .mpState{color:#a55}
 .allyRank{display:flex; flex-direction:column; gap:5px}
 .rankRow{display:flex; align-items:center; gap:8px; background:#150f09; border:1px solid var(--line); border-radius:7px; padding:6px 10px; font-size:13px}
 .rankRow.mine{border-color:var(--gold2)}
@@ -479,5 +487,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261019i"></script>
+    <script src="wow-app.js?v=20261019j"></script>
 </body></html>

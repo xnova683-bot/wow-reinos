@@ -1589,6 +1589,7 @@ const Game = {
       const r = await sbRpc("wow_admin_bot_list", { p_token: this.me.token });
       this.bots = r.bots || []; this.botAuto = !!r.auto; this.botNow = r.now; this.botProtect = r.protect;
       try{ this.alliances = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || []; }catch(_){ this.alliances = this.alliances || []; }
+      try{ this.botMkt = await sbRpc("wow_admin_bot_prices", { p_token: this.me.token }); }catch(_){ this.botMkt = this.botMkt || null; }
     }catch(e){ return toast(shortMsg(e), true); }
     this.renderBotsPanel();
   },
@@ -1624,6 +1625,9 @@ const Game = {
           : 'Están de vacaciones: no juegan, no construyen ni atacan, y no aparecen en el contador en línea.') + '</div>' +
         '<button class="btn' + (auto ? ' danger' : '') + '" id="botAuto">' + (auto ? '🌙 Apagar todos' : '🌞 Encender todos') + '</button>' +
       '</div>' +
+      '<div class="secTitle" style="margin:16px 0 0">🏪 Lo que venden en el mercado</div>' +
+      '<p class="hint" style="margin:6px 0">Precio en 🧿 CUP por unidad. Ponlo de <b>desde</b> a <b>hasta</b>; si pones <b>hasta 0</b>, no venden ese objeto. Nunca compran: solo ponen en venta lo que les sobra (oro, madera, mineral y tropas).</p>' +
+      '<div id="botMktBox"><p class="empty">Cargando…</p></div>' +
       (list.length ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="hint" style="margin:0">A todos:</span>' +
         '<select id="botAllAll" style="flex:1;min-width:140px"><option value="">— sacarlos de su alianza —</option>' + this.allianceOpts("") + '</select>' +
         '<button class="btn sm" id="botAllGo">Meterlos en la alianza</button></div>' : '') +
@@ -1714,6 +1718,41 @@ const Game = {
         catch(e){ toast(shortMsg(e), true); }
       };
     });
+    this.renderBotMarket();
+  },
+  renderBotMarket(){
+    const box = document.getElementById("botMktBox"); if(!box) return;
+    const d = this.botMkt || {}, list = d.prices || [];
+    if(!list.length){ box.innerHTML = '<p class="empty">No se pudieron cargar los precios.</p>'; return; }
+    let h = '<div style="margin:0 0 8px;font-size:12px;color:var(--dim)">🧿 CUP ganado por los reinos automáticos: <b style="color:var(--gold)">' + un(d.earned || 0) + '</b>' +
+      ' · ahora en Administración: <b style="color:var(--gold)">' + un(d.admin_cup || 0) + '</b>' +
+      ' · ofertas suyas activas: <b>' + un(d.offers || 0) + '</b></div>';
+    h += '<div class="mktGrid">' + list.map(p => {
+      const on = Number(p.hi) > 0;
+      return '<div class="mktPrice' + (on ? '' : ' off') + '">' +
+        '<span class="mpName">' + esc(mktName(p.item)) + '</span>' +
+        '<input type="number" min="0" step="0.05" value="' + Number(p.lo) + '" data-blo="' + esc(p.item) + '" title="Desde (CUP por unidad)">' +
+        '<span class="mpDash">–</span>' +
+        '<input type="number" min="0" step="0.05" value="' + Number(p.hi) + '" data-bhi="' + esc(p.item) + '" title="Hasta (CUP por unidad)">' +
+        '<button class="btn sm" data-bsave="' + esc(p.item) + '">Guardar</button>' +
+        '<span class="mpState">' + (on ? 'vende' : 'no vende') + '</span></div>';
+    }).join('') + '</div>';
+    box.innerHTML = h;
+    box.querySelectorAll("[data-bsave]").forEach(b => { b.onclick = () => this.saveBotPrice(b.dataset.bsave); });
+  },
+  async loadBotMarket(){
+    try{ this.botMkt = await sbRpc("wow_admin_bot_prices", { p_token: this.me.token }); }catch(_){}
+    this.renderBotMarket();
+  },
+  async saveBotPrice(item){
+    const box = document.getElementById("botMktBox");
+    const lo = box && box.querySelector('[data-blo="' + item + '"]'), hi = box && box.querySelector('[data-bhi="' + item + '"]');
+    if(!lo || !hi) return;
+    try{
+      const r = await sbRpc("wow_admin_bot_price", { p_token: this.me.token, p_item: item, p_lo: Number(lo.value) || 0, p_hi: Number(hi.value) || 0 });
+      toast(r.on ? ("🏪 " + mktName(item) + ": " + un(r.lo) + " a " + un(r.hi) + " CUP por unidad.") : ("🏪 " + mktName(item) + ": ya no lo venden."));
+      await this.loadBotMarket();
+    }catch(e){ toast(shortMsg(e), true); }
   },
   admRenameBot(id){
     const b = (this.bots || []).find(x => x.id === id); if(!b) return;
