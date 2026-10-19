@@ -629,8 +629,8 @@ const Game = {
     thrones.forEach(t => {
       const pc = mapNodePct(t.node);
       const owned = !!t.holder;
-      const crown = owned ? "👑" : "🏯";
-      const label = owned ? esc(t.holder_name || "?") : "Libre";
+      const crown = t.holder_ally ? "🏛️" : owned ? "👑" : "🏯";
+      const label = owned ? esc(t.ally || t.holder_name || "?") : "Libre";
       throneHtml += `<div class="mPin throne${owned ? " taken" : ""}" data-thr="${t.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
           <div class="mPinCastle">${crown}</div>
           <div class="mPinName">${esc(t.name)}</div>
@@ -652,9 +652,9 @@ const Game = {
       const pc = mapNodePct(a.node);
       const owned = !!a.holder;
       aldeaHtml += `<div class="mPin aldea${owned ? " taken" : ""}" data-ald="${a.node}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
-          <div class="mPinCastle">${owned ? "🏘️" : "🛖"}</div>
+          <div class="mPinCastle">${a.holder_ally ? "🏛️" : owned ? "🏘️" : "🛖"}</div>
           <div class="mPinName">${esc(a.name)}</div>
-          <div class="mPinTag">${owned ? esc(a.holder_name || "?") : "Libre"}</div>
+          <div class="mPinTag">${owned ? esc(a.ally || a.holder_name || "?") : "Libre"}</div>
         </div>`;
     });
     const prevWrap = document.querySelector(".mapWrap");
@@ -969,13 +969,19 @@ const Game = {
         }else if(r.dir === "throne"){
           cls = r.win ? "win" : "lose";
           title = r.win
-            ? `🏯 ¡Has conquistado <b>${esc(r.who)}</b>!`
+            ? `🏯 ¡Has conquistado <b>${esc(r.who)}</b>!` + (r.ally ? ` — en nombre de <b>${esc(r.ally)}</b>` : "")
             : `🏯 Ataque a <b>${esc(r.who)}</b> repelido`;
         }else if(r.dir === "throne_in"){
           cls = r.win ? "lose" : "win";
           title = r.win
-            ? `🏯 Has perdido <b>${esc(r.who)}</b>` + (r.from ? ` — atacado por <b>${esc(r.from)}</b>` : "")
+            ? `🏯 Has perdido <b>${esc(r.who)}</b>` + (r.from ? ` — atacado por <b>${esc(r.from)}</b>` : "") + (r.ally ? ` — pasa a <b>${esc(r.ally)}</b>` : "")
             : `🏯 Has defendido <b>${esc(r.who)}</b>` + (r.from ? ` de <b>${esc(r.from)}</b>` : "");
+        }else if(r.dir === "vault"){
+          cls = "win";
+          title = `🏛️ Llevaste el tesoro de <b>${esc(r.who)}</b> al arcón de tu alianza`;
+        }else if(r.dir === "throne_rein"){
+          cls = "win";
+          title = `🛡️ Tus refuerzos llegaron a <b>${esc(r.who)}</b>`;
         }else{
           cls = "win";
           title = "🏠 Tus tropas volvieron a casa";
@@ -1087,6 +1093,9 @@ const Game = {
     const info = await sbRpc("wow_alliance_info", { p_token: this.me.token, p_id: id });
     this._allyInfo = info;
     const isLeader = info.leader === this.me.name;
+    let v = { vault: {}, members: [], is_leader: false, sum: 0 };
+    try{ v = await sbRpc("wow_alliance_vault", { p_token: this.me.token }) || v; }catch(_){}
+    this._vault = v;
     let html = `<div class="allyBox">
       <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
       <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
@@ -1100,6 +1109,8 @@ const Game = {
         `</div>`;
     });
     html += `</div>
+      <div class="secTitle">🏛️ Arcón de la alianza</div>
+      ${this.vaultHtml(v)}
       <div class="secTitle">⚔️ Guerras</div>
       <div id="warsBox" class="warsBox"></div>
       <div class="secTitle">💬 Chat de la alianza</div>
@@ -1111,6 +1122,9 @@ const Game = {
     </div>`;
     $("#tabAlly").innerHTML = html;
     $("#tabAlly").querySelectorAll("[data-kick]").forEach(b => { b.onclick = () => this.kickMember(b.dataset.kick); });
+    $("#tabAlly").querySelectorAll("[data-vsh]").forEach(inp => { inp.onchange = () => this.setShare(inp.dataset.vsh, inp.value); });
+    const vg = document.getElementById("vaultGo"); if(vg) vg.onclick = () => this.distributeVault();
+    const vp = document.getElementById("vpayGo"); if(vp) vp.onclick = () => this.payVault();
     $("#chatSend").onclick = () => this.sendChat();
     $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
@@ -1118,6 +1132,61 @@ const Game = {
     await this.loadChat();
     await this.loadAllyRank("#allyRank");
     this.startChatPoll();
+  },
+  vaultHtml(v){
+    const vl = (v && v.vault) || {};
+    const keys = Object.keys(vl).filter(k => Number(vl[k]) > 0);
+    const mem = ((v && v.members) || []);
+    let h = "";
+    if(!keys.length){
+      h += '<div class="empty" style="padding:10px">Vacío. Los tesoros de los tronos y aldeas de la alianza entran aquí cuando algún miembro los reclama.</div>';
+    }else{
+      h += '<div style="background:rgba(0,0,0,.18);border:1px solid var(--line);border-radius:8px;padding:8px 10px">' +
+        keys.map(k => `<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${esc(mktName(k))}</span><b>${un(vl[k])}</b></div>`).join("") + '</div>';
+    }
+    if(v && v.is_leader){
+      h += '<p class="hint" style="margin:8px 0 4px">Como líder decides qué % del arcón recibe cada miembro. Al repartir, cada uno cobra su parte y lo que sobre se queda en la alianza.</p>';
+      h += '<div style="display:flex;flex-direction:column;gap:4px">' + mem.map(m =>
+        `<div style="display:flex;align-items:center;gap:8px"><span style="flex:1">${m.leader ? "👑 " : ""}${esc(m.name)}</span>` +
+        `<input type="number" min="0" max="100" step="5" value="${Number(m.pct) || 0}" data-vsh="${esc(m.id)}" style="width:70px"> %</div>`).join("") + '</div>';
+      h += `<div class="muted" style="margin-top:6px">Suman <b>${un(v.sum || 0)}%</b> (no pueden pasar de 100%).</div>`;
+      h += '<div style="margin-top:8px"><button class="btn sm" id="vaultGo">💰 Repartir ahora</button></div>';
+      h += `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span class="muted">Pagar a</span>
+        <select id="vpayWho">${mem.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")}</select>
+        <select id="vpayKey">${(keys.length ? keys : ["gold"]).map(k => `<option value="${esc(k)}">${esc(mktName(k))}</option>`).join("")}</select>
+        <input id="vpayQty" type="number" min="0" step="1" placeholder="Cantidad" style="width:100px">
+        <button class="btn sm" id="vpayGo">Pagar</button></div>`;
+    }else{
+      const mine = mem.filter(m => Number(m.pct) > 0);
+      if(mine.length) h += '<div class="muted" style="margin-top:6px">Reparto que decide el líder: ' + mine.map(m => `${esc(m.name)} <b>${un(m.pct)}%</b>`).join(" · ") + '.</div>';
+    }
+    return h;
+  },
+  async setShare(id, pct){
+    try{
+      await sbRpc("wow_alliance_setshare", { p_token: this.me.token, p_id: id, p_pct: Math.max(0, Math.min(100, Number(pct) || 0)) });
+      await this.renderAllyMine(this._allyInfo.id);
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async distributeVault(){
+    if(!confirm("¿Repartir el arcón de la alianza según los porcentajes?")) return;
+    try{
+      const r = await sbRpc("wow_alliance_distribute", { p_token: this.me.token });
+      toast("Arcón repartido entre " + un(r.members_paid || 0) + " miembro(s).");
+      await this.renderAllyMine(this._allyInfo.id);
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async payVault(){
+    const who = (document.getElementById("vpayWho") || {}).value;
+    const key = (document.getElementById("vpayKey") || {}).value;
+    const qty = Number((document.getElementById("vpayQty") || {}).value || 0);
+    if(!who || !key || qty <= 0) return toast("Elige miembro, recurso y cantidad.", true);
+    try{
+      const r = await sbRpc("wow_alliance_pay", { p_token: this.me.token, p_id: who, p_key: key, p_qty: qty });
+      toast("Pagado: " + un(r.qty) + " de " + mktName(r.key) + ".");
+      await this.renderAllyMine(this._allyInfo.id);
+    }catch(e){ toast(shortMsg(e), true); }
   },
   async loadAllyRank(sel){
     try{
@@ -1757,13 +1826,14 @@ Game.openFort = async function(node, kind){
     const list = (kind === "aldea") ? this._aldeas : this._thrones;
     const t = list.find(x => x.node === node);
     const me = this.me;
-    const own = !!(t && t.holder === me.id);
+    const own = !!(t && t.mine);
     const troops = ((this.st && this.st.troops) || []).filter(x => x.qty > 0);
     let body = '<h2 style="margin-top:0;color:var(--gold)">' + icon + ' ' + esc(t ? t.name : (kind === "aldea" ? "Aldea" : "Trono")) + '</h2>';
     if(!t){
       body += '<div class="muted">' + (kind === "aldea" ? "Aldea libre. Envía tropas para ocuparla." : "Trono libre. Envía tropas para ocuparlo.") + '</div>';
     }else{
-      body += '<div class="row"><span>Dueño</span><span>' + esc(t.holder_name || 'Libre') + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
+      body += '<div class="row"><span>Dueño</span><span>' + (t.holder_ally ? '🏛️ ' + esc(t.ally || 'Alianza') : esc(t.holder_name || 'Libre')) + (t.faction? ' ['+esc(t.faction)+']' : '') + '</span></div>';
+      if(t.holder_ally && t.mine) body += '<div class="muted" style="margin-top:4px">🏛️ Este lugar es de tu alianza: los recursos que reclames van al arcón común.</div>';
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
         body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
@@ -1817,7 +1887,7 @@ Game.openFort = async function(node, kind){
       body += '<div style="text-align:center;margin-top:10px">' +
         (troops.length ? '<button class="btn" id="thrReinBtn">🛡️ Reforzar guarnición</button>' : '') +
         (gkeys.length ? '<button class="btn" id="thrWithBtn">➖ Retirar tropas</button>' : '') +
-        (t.treasure && Object.keys(t.treasure).length ? '<button class="btn" id="thrClaimBtn">💰 Reclamar tesoro</button>' : '') +
+        (t.treasure && Object.keys(t.treasure).length ? '<button class="btn" id="thrClaimBtn">💰 ' + (t.holder_ally ? 'Reclamar al arcón' : 'Reclamar tesoro') + '</button>' : '') +
         '</div>';
     }
     if(t && t.history && t.history.length){
