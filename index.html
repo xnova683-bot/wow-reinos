@@ -318,7 +318,11 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .mPin.alianza .mPinCastle{filter:drop-shadow(0 0 4px #5aa0ff) drop-shadow(0 2px 2px rgba(0,0,0,.85))}
 .mPin.horda .mPinCastle{filter:drop-shadow(0 0 4px #ff5f5f) drop-shadow(0 2px 2px rgba(0,0,0,.85))}
 .mPin.me .mPinName{color:#0d180f; background:linear-gradient(#f0c060,#d4a017); border-color:var(--gold)}
-.mPinTag{font-size:9px; color:var(--dim)}
+.mPinTag{display:inline-block; font-size:10px; font-weight:700; color:#f0e2c6; background:rgba(20,12,6,.85);
+  border:1px solid var(--line); border-radius:5px; padding:0 4px; margin-top:1px;
+  white-space:nowrap; max-width:140px; overflow:hidden; text-overflow:ellipsis}
+.mPin.throne.taken .mPinTag{color:#ffe9a8; border-color:var(--gold2)}
+.mPin.aldea.taken .mPinTag{color:#ffe9a8; border-color:var(--gold2)}
 .mPin.throne .mPinCastle{font-size:34px; filter:drop-shadow(0 0 10px rgba(240,192,96,.9)) drop-shadow(0 3px 3px rgba(0,0,0,.85))}
 .mPin.throne .mPinName{color:#ffe9a8; border-color:var(--gold2); letter-spacing:1px}
 .mPin.aldea .mPinCastle{font-size:26px; filter:drop-shadow(0 0 8px rgba(130,200,120,.9)) drop-shadow(0 3px 3px rgba(0,0,0,.85))}
@@ -344,6 +348,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 @media(max-width:520px){
   .mPin .mPinCastle{font-size:18px}
   .mPin .mPinName{font-size:9px; max-width:92px}
+  .mPin .mPinTag{font-size:9px; max-width:92px}
   .mPin.throne .mPinCastle{font-size:26px}
   .mPin.aldea .mPinCastle{font-size:20px}
   .mArmy{font-size:16px}
@@ -463,5 +468,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261018q"></script>
+    <script src="wow-app.js?v=20261018r"></script>
 </body></html>
