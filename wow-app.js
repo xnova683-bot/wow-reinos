@@ -1929,16 +1929,16 @@ Game.loadMarket = async function(){
   html += '<div class="secTitle">🌍 Ofertas del reino</div>';
   if(!(d.offers || []).length) html += '<div class="empty">No hay ofertas ahora mismo.</div>';
   else html += (d.offers || []).map(o =>
-      '<div class="fleet"><span class="fi">🤝</span>' +
+      '<div class="fleet mkRow"><span class="fi">🤝</span>' +
       '<div class="fmain"><div class="ft">' + esc(o.who) + '</div>' +
-      '<div class="fd">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + ' → pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
-      '<div class="fcount"><input id="mkTk_' + o.id + '" type="number" min="0" value="' + o.give_left + '" style="width:78px"> ' +
+      '<div class="fd">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + ' · pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
+      '<div class="fcount"><input id="mkTk_' + o.id + '" type="number" min="0" value="' + o.give_left + '" style="width:70px"> ' +
       '<button class="btn sm" data-take="' + o.id + '">Tomar</button></div></div>'
     ).join("");
   html += '<div class="secTitle">📦 Mis ofertas</div>';
   if(!(d.mine || []).length) html += '<div class="empty">No tienes ofertas activas.</div>';
   else html += (d.mine || []).map(o =>
-      '<div class="fleet"><span class="fi">📦</span>' +
+      '<div class="fleet mkRow"><span class="fi">📦</span>' +
       '<div class="fmain"><div class="ft">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + '</div>' +
       '<div class="fd">pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
       '<div class="fcount"><button class="btn sm danger" data-cancel="' + o.id + '">Cancelar</button></div></div>'
