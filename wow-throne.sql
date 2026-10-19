@@ -181,12 +181,126 @@ begin
 end $$;
 grant execute on function public.wow_throne_info(text) to anon, authenticated;
 
--- ---- conquistar (atacar guarnicion) ----
+-- ================================================================
+-- LAS TROPAS VIAJAN: atacar, reforzar, retirar y reclamar tesoro
+-- tardan lo mismo que el icono del mapa. Al llegar las tropas,
+-- _wow_resolve() llama a _wow_throne_land() y ahi ocurre la accion.
+-- ================================================================
+create or replace function public._wow_throne_land(p_fleet_id bigint)
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare
+  f wow_fleets; u wow_users; t wow_thrones; ms bigint; z record; r record;
+  sim jsonb; surv jsonb; msg jsonb; prev text; ret integer;
+  a_forge int; a_fort int; d_forge int; d_fort int; d_wall int;
+begin
+  ms := (extract(epoch from now())*1000)::bigint;
+  select * into f from wow_fleets where id = p_fleet_id;
+  if f.id is null then return; end if;
+  select * into u from wow_users where id = f.attacker;
+  if u.id is null then delete from wow_fleets where id = f.id; return; end if;
+  select * into t from wow_thrones where node = f.node for update;
+
+  -- ---- reclamar tesoro: recoge lo acumulado y vuelve a casa ----
+  if f.kind = 'throne_claim' then
+    msg := '{}'::jsonb;
+    if t.node is not null and t.holder = u.id then
+      perform _wow_throne_accrue();
+      for r in select key, qty from wow_throne_treasure where node = t.node and qty > 0 for update loop
+        msg := msg || jsonb_build_object(r.key, r.qty);
+      end loop;
+      delete from wow_throne_treasure where node = t.node;
+      if msg <> '{}'::jsonb then perform _wow_throne_log(t.node, 'claim', u.id, u.name, msg); end if;
+    end if;
+    ret := _wow_travel_node(u.pos, coalesce(f.node, _wow_pos_node(u.pos)));
+    update wow_fleets set state = 'returning', loot = msg, arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
+    return;
+  end if;
+
+  -- ---- refuerzo: suma a la guarnicion; si ya no es tuyo, vuelve a casa ----
+  if f.kind = 'throne_rein' then
+    if t.node is not null and t.holder = u.id then
+      surv := t.garrison;
+      for z in select key, value::int from jsonb_each_text(f.troops) loop
+        surv := jsonb_set(surv, array[z.key], to_jsonb(coalesce((surv->>z.key)::int,0) + z.value), true);
+      end loop;
+      update wow_thrones set garrison = surv where node = t.node;
+      perform _wow_throne_log(t.node, 'reinforce', u.id, u.name, jsonb_build_object('troops', f.troops));
+      perform _wow_event('throne', '🛡️ ' || u.name || ' ha reforzado ' || t.name || '.');
+      insert into wow_reports(owner, kind, data, created)
+        values (u.id, 'out', jsonb_build_object('dir','throne_rein','who',coalesce(t.name,''),'win',true,'created',ms), ms);
+    else
+      ret := _wow_travel_node(u.pos, coalesce(f.node, _wow_pos_node(u.pos)));
+      update wow_fleets set state = 'returning', arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
+      insert into wow_reports(owner, kind, data, created)
+        values (u.id, 'out', jsonb_build_object('dir','throne_rein','who',coalesce(t.name,''),'win',false,
+          'note','Ya no controlabas ese lugar: tus tropas vuelven a casa.','created',ms), ms);
+      return;
+    end if;
+    delete from wow_fleets where id = f.id;
+    return;
+  end if;
+
+  -- ---- asalto: si el objetivo desaparecio, las tropas vuelven ----
+  if t.node is null then
+    ret := _wow_travel_node(u.pos, _wow_pos_node(u.pos));
+    update wow_fleets set state = 'returning', arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
+    insert into wow_reports(owner, kind, data, created)
+      values (u.id, 'out', jsonb_build_object('dir','throne','who','','win',false,
+        'note','El objetivo ya no existe: tus tropas vuelven a casa.','created',ms), ms);
+    return;
+  end if;
+
+  -- ---- trono/aldea libre o guarnicion vacia: se ocupa sin lucha ----
+  if coalesce(t.holder,'') = '' or t.garrison = '{}'::jsonb then
+    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = f.troops, accrue_ms = ms where node = t.node;
+    perform _wow_throne_log(t.node, 'take', u.id, u.name, jsonb_build_object('garrison', f.troops));
+    perform _wow_event('throne', (case when t.kind = 'aldea' then '🛖 ' else '🏯 ' end) || u.name || ' ha ocupado ' || t.name || '.');
+    insert into wow_reports(owner, kind, data, created)
+      values (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'battle',null,'created',ms), ms);
+    delete from wow_fleets where id = f.id;
+    return;
+  end if;
+
+  -- ---- batalla contra la guarnicion (muros/herreria/fortaleza del duenio) ----
+  prev := t.holder_name;
+  a_forge := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'herreria'), 0);
+  a_fort  := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'fortaleza'), 0);
+  d_forge := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'herreria'), 0);
+  d_fort  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'fortaleza'), 0);
+  d_wall  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'muralla'), 0);
+  sim := _wow_sim(f.troops, t.garrison, d_wall, (ms/1000) + t.node*131,
+                  1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort);
+  if (sim->>'winner') = 'attacker' then
+    surv := '{}'::jsonb;
+    for z in select key, value from jsonb_each_text(sim->'a_left') loop
+      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
+    end loop;
+    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = surv, accrue_ms = ms where node = t.node;
+    perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
+    perform _wow_event('throne', (case when t.kind = 'aldea' then '🏘️ ' else '👑 ' end) || u.name || ' ha conquistado ' || t.name || ' (antes de ' || coalesce(prev, 'nadie') || ').');
+    insert into wow_reports(owner, kind, data, created) values
+      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms),
+      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms);
+  else
+    surv := '{}'::jsonb;
+    for z in select key, value from jsonb_each_text(sim->'d_left') loop
+      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
+    end loop;
+    update wow_thrones set garrison = surv where node = t.node;
+    perform _wow_throne_log(t.node, 'defended', u.id, u.name, jsonb_build_object('holder', prev));
+    perform _wow_event('throne', '🛡️ La guarnición de ' || t.name || ' ha rechazado el ataque de ' || u.name || '.');
+    insert into wow_reports(owner, kind, data, created) values
+      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms),
+      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms);
+  end if;
+  delete from wow_fleets where id = f.id;
+end $$;
+revoke all on function public._wow_throne_land(bigint) from public, anon, authenticated;
+
+-- ---- conquistar (atacar la guarnicion): el ejercito viaja y combate al llegar ----
 create or replace function public.wow_throne_attack(p_token text, p_node integer, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare
-  u wow_users; t wow_thrones; ms bigint; army jsonb; sim jsonb; surv jsonb;
-  z record; a_forge int; a_fort int; d_forge int; d_fort int; d_wall int; prev text;
+declare u wow_users; t wow_thrones; ms bigint; army jsonb; z record; travel integer;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -197,59 +311,24 @@ begin
   army := _wow_throne_check(p_troops);
   select * into t from wow_thrones where node = p_node for update;
   if t.node is null then raise exception 'Trono no válido.'; end if;
-  -- el ejercito sale del reino
+  if exists(select 1 from wow_fleets where attacker = u.id and node = p_node and state = 'outbound') then
+    raise exception 'Ya tienes un ejército en camino a %.', t.name; end if;
+  -- el ejercito sale del reino y viaja
   for z in select key, value::int from jsonb_each_text(army) loop
     perform _wow_mkt_sub(u.id, z.key, z.value);
   end loop;
-  -- trono libre/vacio: se ocupa sin lucha
-  if coalesce(t.holder,'') = '' or t.garrison = '{}'::jsonb then
-    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = army, accrue_ms = ms where node = t.node;
-    perform _wow_throne_log(t.node, 'take', u.id, u.name, jsonb_build_object('garrison', army));
-    perform _wow_event('throne', '🏯 ' || u.name || ' ha ocupado ' || t.name || '.');
-    insert into wow_reports(owner, kind, data, created)
-      values (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'battle',null,'created',ms), ms);
-    return jsonb_build_object('ok', true, 'took', true, 'free', true, 'garrison', army);
-  end if;
-  -- batalla contra la guarnicion (defiende con muralla/herreria/fortaleza del duenio)
-  prev := t.holder_name;
-  a_forge := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'herreria'), 0);
-  a_fort  := coalesce((select max(level) from wow_buildings where owner_id = u.id and bkey = 'fortaleza'), 0);
-  d_forge := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'herreria'), 0);
-  d_fort  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'fortaleza'), 0);
-  d_wall  := coalesce((select max(level) from wow_buildings where owner_id = t.holder and bkey = 'muralla'), 0);
-  sim := _wow_sim(army, t.garrison, d_wall, (ms/1000) + t.node*131,
-                  1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort);
-  if (sim->>'winner') = 'attacker' then
-    surv := '{}'::jsonb;
-    for z in select key, value from jsonb_each_text(sim->'a_left') loop
-      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
-    end loop;
-    update wow_thrones set holder = u.id, holder_name = u.name, since_ms = ms, garrison = surv, accrue_ms = ms where node = t.node;
-    perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
-    perform _wow_event('throne', '👑 ' || u.name || ' ha conquistado ' || t.name || ' (antes de ' || coalesce(prev, 'nadie') || ').');
-    insert into wow_reports(owner, kind, data, created) values
-      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms),
-      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',true,'from',u.name,'battle',sim,'created',ms), ms);
-    return jsonb_build_object('ok', true, 'win', true, 'battle', sim);
-  else
-    surv := '{}'::jsonb;
-    for z in select key, value from jsonb_each_text(sim->'d_left') loop
-      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
-    end loop;
-    update wow_thrones set garrison = surv where node = t.node;
-    perform _wow_throne_log(t.node, 'defended', u.id, u.name, jsonb_build_object('holder', prev));
-    insert into wow_reports(owner, kind, data, created) values
-      (u.id, 'out', jsonb_build_object('dir','throne','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms),
-      (t.holder, 'in', jsonb_build_object('dir','throne_in','who',t.name,'win',false,'from',u.name,'battle',sim,'created',ms), ms);
-    return jsonb_build_object('ok', true, 'win', false, 'battle', sim);
-  end if;
+  travel := _wow_travel_node(u.pos, t.node);
+  insert into wow_fleets(attacker, target, node, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, '', t.node, army, '{}'::jsonb, 'outbound', 'throne_atk', ms, ms + travel*1000, ms);
+  perform _wow_event('throne', '⚔️ ' || u.name || ' ha enviado un ejército contra ' || t.name || '.');
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
 end $$;
 grant execute on function public.wow_throne_attack(text, integer, jsonb) to anon, authenticated;
 
--- ---- reforzar guarnicion (solo el duenio) ----
+-- ---- reforzar guarnicion (solo el duenio): las tropas viajan ----
 create or replace function public.wow_throne_reinforce(p_token text, p_node integer, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_thrones; army jsonb; newg jsonb; z record;
+declare u wow_users; t wow_thrones; ms bigint; army jsonb; z record; travel integer;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -258,23 +337,23 @@ begin
   select * into t from wow_thrones where node = p_node for update;
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder <> u.id then raise exception 'No controlas ese trono.'; end if;
+  if exists(select 1 from wow_fleets where attacker = u.id and node = p_node and state = 'outbound') then
+    raise exception 'Ya tienes un ejército en camino a %.', t.name; end if;
   for z in select key, value::int from jsonb_each_text(army) loop
     perform _wow_mkt_sub(u.id, z.key, z.value);
   end loop;
-  newg := t.garrison;
-  for z in select key, value::int from jsonb_each_text(army) loop
-    newg := jsonb_set(newg, array[z.key], to_jsonb(coalesce((newg->>z.key)::int,0) + z.value), true);
-  end loop;
-  update wow_thrones set garrison = newg where node = t.node;
-  perform _wow_throne_log(t.node, 'reinforce', u.id, u.name, jsonb_build_object('troops', army));
-  return jsonb_build_object('ok', true, 'garrison', newg);
+  ms := (extract(epoch from now())*1000)::bigint;
+  travel := _wow_travel_node(u.pos, t.node);
+  insert into wow_fleets(attacker, target, node, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, '', t.node, army, '{}'::jsonb, 'outbound', 'throne_rein', ms, ms + travel*1000, ms);
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
 end $$;
 grant execute on function public.wow_throne_reinforce(text, integer, jsonb) to anon, authenticated;
 
--- ---- retirar tropas de la guarnicion (solo el duenio) ----
+-- ---- retirar tropas de la guarnicion: salen al momento y llegan al icono ----
 create or replace function public.wow_throne_withdraw(p_token text, p_node integer, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_thrones; army jsonb; newg jsonb; z record; left_g int;
+declare u wow_users; t wow_thrones; ms bigint; army jsonb; newg jsonb; z record; left_g int; travel integer;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -283,12 +362,11 @@ begin
   select * into t from wow_thrones where node = p_node for update;
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder <> u.id then raise exception 'No controlas ese trono.'; end if;
-  -- comprobar que la guarnicion tiene esas tropas
   for z in select key, value::int from jsonb_each_text(army) loop
     if coalesce((t.garrison->>z.key)::int, 0) < z.value then
       raise exception 'No tienes tantas tropas de ese tipo en la guarnición.'; end if;
   end loop;
-  -- retirar de la guarnicion y devolverlas al reino
+  -- salen de la guarnicion (viajan a casa)
   newg := t.garrison;
   for z in select key, value::int from jsonb_each_text(army) loop
     left_g := coalesce((newg->>z.key)::int, 0) - z.value;
@@ -297,18 +375,22 @@ begin
     else
       newg := newg - z.key;
     end if;
-    perform _wow_mkt_add(u.id, z.key, z.value);
   end loop;
   update wow_thrones set garrison = newg where node = t.node;
   perform _wow_throne_log(t.node, 'withdraw', u.id, u.name, jsonb_build_object('troops', army));
-  return jsonb_build_object('ok', true, 'garrison', newg, 'empty', (newg = '{}'::jsonb));
+  ms := (extract(epoch from now())*1000)::bigint;
+  travel := _wow_travel_node(u.pos, t.node);
+  insert into wow_fleets(attacker, target, node, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, '', t.node, army, '{}'::jsonb, 'returning', 'throne_with', ms, ms + travel*1000, ms);
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000,
+                            'empty', (newg = '{}'::jsonb), 'target', t.name);
 end $$;
 grant execute on function public.wow_throne_withdraw(text, integer, jsonb) to anon, authenticated;
 
--- ---- reclamar tesoro (solo el duenio) ----
+-- ---- reclamar tesoro (solo el duenio): una partida va, recoge y vuelve ----
 create or replace function public.wow_throne_claim(p_token text, p_node integer)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_thrones; r record; msg jsonb := '{}'::jsonb;
+declare u wow_users; t wow_thrones; ms bigint; travel integer; have numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -316,14 +398,16 @@ begin
   select * into t from wow_thrones where node = p_node for update;
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder <> u.id then raise exception 'No controlas ese trono.'; end if;
+  if exists(select 1 from wow_fleets where attacker = u.id and node = p_node and kind = 'throne_claim' and state = 'outbound') then
+    raise exception 'Ya tienes una partida en camino a reclamar el tesoro de %.', t.name; end if;
   perform _wow_throne_accrue();
-  for r in select key, qty from wow_throne_treasure where node = p_node and qty > 0 loop
-    perform _wow_mkt_add(u.id, r.key, r.qty);
-    msg := msg || jsonb_build_object(r.key, r.qty);
-  end loop;
-  delete from wow_throne_treasure where node = p_node;
-  if msg <> '{}'::jsonb then perform _wow_throne_log(p_node, 'claim', u.id, u.name, msg); end if;
-  return jsonb_build_object('ok', true, 'claimed', msg);
+  select coalesce(sum(qty),0) into have from wow_throne_treasure where node = p_node;
+  if have <= 0 then raise exception 'No hay tesoro que reclamar todavía.'; end if;
+  ms := (extract(epoch from now())*1000)::bigint;
+  travel := _wow_travel_node(u.pos, t.node);
+  insert into wow_fleets(attacker, target, node, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
+    values (u.id, '', t.node, '{}'::jsonb, '{}'::jsonb, 'outbound', 'throne_claim', ms, ms + travel*1000, ms);
+  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
 end $$;
 grant execute on function public.wow_throne_claim(text, integer) to anon, authenticated;
 

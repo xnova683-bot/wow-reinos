@@ -722,12 +722,20 @@ const Game = {
     layer.querySelectorAll(".mArmy:not(.fx)").forEach(e => e.remove());
     this._marchTokens = [];
     (this.marches || []).forEach((m, idx) => {
-      if(m.from == null || m.to == null) return;
-      const reach = mapPathNodes(m.from, m.to).map(mapNodePct);
+      const fn = m.from_node != null ? m.from_node : (m.from != null ? mapPosNode(m.from) : null);
+      const tn = m.to_node != null ? m.to_node : (m.to != null ? mapPosNode(m.to) : null);
+      if(fn == null || tn == null) return;
+      const reach = mapNodePath(fn, tn).map(mapNodePct);
+      const back = m.state === "returning";
+      const icon = m.kind === "spy" ? "🕵️"
+        : m.kind === "throne_rein" ? "🛡️"
+        : m.kind === "throne_claim" ? "💰"
+        : back ? "🚩" : "⚔️";
       const el = document.createElement("div");
       el.className = "mArmy" + (m.mine ? " mine" : "") +
-        (m.kind === "spy" ? " spy" : (m.state === "returning" ? " back" : ""));
-      el.textContent = m.kind === "spy" ? "🕵️" : (m.state === "returning" ? "🚩" : "⚔️");
+        (m.kind === "spy" ? " spy" : (back ? " back" : ""));
+      el.textContent = icon;
+      el.title = (m.attacker || "?") + " → " + (m.target || (m.kind === "spy" ? "espionaje" : "?"));
       layer.appendChild(el);
       this._marchTokens.push({ el, pts: reach, depart: m.depart, arrive: m.arrive, seed: idx * 1.7 });
     });
@@ -907,9 +915,13 @@ const Game = {
       fleets.forEach(f => {
         const inc = !f.mine;
         const isSpy = f.kind === "spy";
+        const isRein = f.kind === "throne_rein";
+        const isClaim = f.kind === "throne_claim";
         const outbound = f.state === "outbound";
-        const emoji = isSpy ? "🔍" : (outbound ? (inc ? "🛡️" : "⚔️") : "🏠");
+        const emoji = isSpy ? "🔍" : isRein ? "🛡️" : isClaim ? "💰" : (outbound ? (inc ? "🛡️" : "⚔️") : "🏠");
         const lab = isSpy ? "espía en camino"
+          : isRein ? (outbound ? "reforzando " + esc(f.who) : "volviendo a casa")
+          : isClaim ? (outbound ? "a por el tesoro de " + esc(f.who) : "con el tesoro a casa")
           : outbound
             ? (inc ? "en camino a atacarte" : "atacando a " + esc(f.who))
             : (inc ? "regresando tras atacarte" : "volviendo a casa");
@@ -1587,6 +1599,9 @@ Game.openFort = async function(node, kind){
       body += '<div class="row"><span>Tributo</span><span>' + un(r.share||1) + '% del valor del trato</span></div>';
       if(r.rates) body += '<div class="muted" style="margin-top:4px">Genera +' + un(r.rates.gold||0) + ' 💰 oro · +' + un(r.rates.wood||0) + ' 🪵 madera · +' + un(r.rates.ore||0) + ' ⛏️ mineral por hora (se acumula en el tesoro).</div>';
     }
+    if(this.st && this.st.pos != null && this.st.pos >= 0){
+      body += '<div class="muted" style="margin-top:8px">⏱ Tus tropas tardan ~' + travelNodes(mapPosNode(this.st.pos), node) + ' s en llegar.</div>';
+    }
     if(!own){
       body += '<div class="muted" style="margin-top:10px">Enviar desde tu reino</div>';
       if(!troops.length){
@@ -1666,6 +1681,10 @@ Game._thrTroops = function(){
   });
   return payload;
 };
+Game._marchEta = function(r){ return Math.max(1, Math.round(Number((r && r.travel) || 0))); };
+Game._marchSent = async function(){
+  await this.refresh(); await this.loadMap(); this.loadMarches();
+};
 Game.thrAtk = async function(node){
   const payload = this._thrTroops();
   if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
@@ -1673,20 +1692,18 @@ Game.thrAtk = async function(node){
     const r = await sbRpc("wow_throne_attack", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
     const al = this._fortKind(node) === "aldea";
-    toast(r.free ? (al ? "🛖 ¡Ocupaste la aldea!" : "🏯 ¡Ocupaste el trono!") : (r.win ? (al ? "🏘️ ¡Conquistaste la aldea!" : "👑 ¡Conquistaste el trono!") : "❌ La guarnición resistió."));
-    await this.refresh(); await this.loadMap();
-    this.showMarchFx(this._myNode(), node, "⚔️", "atk");
+    toast((al ? "🛖" : "🏯") + " Tu ejército marcha contra " + (r.target || (al ? "la aldea" : "el trono")) + ". ⏱ Llega en ~" + this._marchEta(r) + " s.");
+    await this._marchSent();
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game.thrRein = async function(node){
   const payload = this._thrTroops();
   if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
   try{
-    await sbRpc("wow_throne_reinforce", { p_token: this.me.token, p_node: node, p_troops: payload });
+    const r = await sbRpc("wow_throne_reinforce", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
-    toast("🛡️ Guarnición reforzada.");
-    await this.refresh(); await this.loadMap();
-    this.showMarchFx(this._myNode(), node, "🛡️", "rein");
+    toast("🛡️ Refuerzo en camino a " + (r.target || "la guarnición") + ". ⏱ Llega en ~" + this._marchEta(r) + " s.");
+    await this._marchSent();
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game._thrWithTroops = function(){
@@ -1705,20 +1722,17 @@ Game.thrWith = async function(node){
   try{
     const r = await sbRpc("wow_throne_withdraw", { p_token: this.me.token, p_node: node, p_troops: payload });
     modalClose();
-    toast(r.empty ? "➖ Tropas retiradas. ¡La guarnición quedó vacía!" : "➖ Tropas retiradas a tu reino.");
-    await this.refresh(); await this.loadMap();
-    this.showMarchFx(node, this._myNode(), "🚩", "back");
+    toast((r.empty ? "➖ Tropas retiradas. ¡La guarnición quedó vacía! " : "➖ Tropas retiradas. ") +
+      "Vuelven a casa ⏱ ~" + this._marchEta(r) + " s.");
+    await this._marchSent();
   }catch(e){ toast(shortMsg(e), true); }
 };
 Game.thrClaim = async function(node){
   try{
     const r = await sbRpc("wow_throne_claim", { p_token: this.me.token, p_node: node });
-    const c = r.claimed || {};
-    const parts = Object.keys(c).filter(k => Number(c[k]) > 0).map(k => mktName(k) + ": " + un(c[k]));
     modalClose();
-    toast("💰 Reclamado: " + (parts.length ? parts.join(", ") : "nada"));
-    await this.refresh(); await this.loadMap();
-    this.showMarchFx(node, this._myNode(), "💰", "back");
+    toast("💰 Una partida va a reclamar el tesoro de " + (r.target || "la aldea") + ". ⏱ Llega en ~" + this._marchEta(r) + " s.");
+    await this._marchSent();
   }catch(e){ toast(shortMsg(e), true); }
 };
 

@@ -37,6 +37,7 @@ create table if not exists public.wow_fleets(
 );
 alter table public.wow_fleets add column if not exists kind text not null default 'attack';
 alter table public.wow_fleets add column if not exists leg_start_ms bigint not null default 0;
+alter table public.wow_fleets add column if not exists node integer;
 alter table public.wow_users add column if not exists is_admin boolean not null default false;
 alter table public.wow_users add column if not exists cup numeric(16,2) not null default 0;
 create table if not exists public.wow_reports(
@@ -118,10 +119,67 @@ begin
   s := _wow_slot(p % 20);
   return array[ctr[1] + s[1] * 0.72, ctr[2] + s[2] * 0.60];
 end $$;
-create or replace function public._wow_travel(a integer, b integer)
+/* ---- nodos del mapa (0..99): mismas coordenadas que el frontend ---- */
+create or replace function public._wow_node_ctr(p_c integer)
+returns double precision[] language sql immutable as $$
+  select case p_c when 0 then '{600,600}'::double precision[] when 1 then '{600,1800}'
+                  when 2 then '{1800,600}' else '{1800,1800}' end
+$$;
+create or replace function public._wow_node_base(p_c integer)
+returns integer language sql immutable as $$
+  select case p_c when 0 then 0 when 1 then 21 when 2 then 50 else 75 end
+$$;
+create or replace function public._wow_node_cont(p_node integer)
+returns integer language sql immutable as $$
+  select case
+    when p_node between 42 and 45 then 0
+    when p_node between 46 and 49 then 1
+    when p_node between 71 and 74 then 2
+    when p_node between 96 and 99 then 3
+    when p_node >= 75 then 3
+    when p_node >= 50 then 2
+    when p_node >= 21 then 1
+    else 0 end
+$$;
+/* aldeas: indice 0..15 -> desplazamiento local respecto al centro */
+create or replace function public._wow_node_ald(p_i integer)
+returns double precision[] language sql immutable as $$
+  select case p_i % 4 when 0 then '{-560,-560}'::double precision[] when 1 then '{560,-560}'
+                      when 2 then '{560,560}' else '{-560,560}' end
+$$;
+create or replace function public._wow_node_xy(p_node integer)
+returns double precision[] language plpgsql immutable as $$
+declare
+  c integer; off integer; ctr double precision[]; s double precision[]; a double precision[];
+  ai integer; ald integer[] := array[42,43,44,45,46,47,48,49,71,72,73,74,96,97,98,99];
+begin
+  c := _wow_node_cont(p_node);
+  off := p_node - _wow_node_base(c);
+  ctr := _wow_node_ctr(c);
+  if off = 0 then return ctr; end if;                 /* trono: centro del continente */
+  ai := array_position(ald, p_node);
+  if ai is not null then                               /* aldea */
+    a := _wow_node_ald(ai - 1);
+    return array[ctr[1] + a[1] * 0.72, ctr[2] + a[2] * 0.60];
+  end if;
+  s := _wow_slot(off - 1);                             /* castillo */
+  return array[ctr[1] + s[1] * 0.72, ctr[2] + s[2] * 0.60];
+end $$;
+/* pos de reino -> nodo de su castillo (igual que mapPosNode del frontend) */
+create or replace function public._wow_pos_node(p_pos integer)
+returns integer language sql immutable as $$
+  select _wow_node_base((((coalesce(p_pos,0) % 80) + 80) % 80) / 20)
+       + (((coalesce(p_pos,0) % 80) + 80) % 80) % 20 + 1
+$$;
+/* segundos de viaje entre la casilla de un reino y un nodo del mapa */
+create or replace function public._wow_travel_node(p_pos integer, p_node integer)
 returns integer language sql immutable as $$
   select greatest(20, 15 + round(sqrt(power(x1[1] - x2[1], 2) + power(x1[2] - x2[2], 2)) / 20.0)::integer)
-  from (select _wow_pos_xy(a) as x1, _wow_pos_xy(b) as x2) t
+  from (select _wow_pos_xy(p_pos) as x1, _wow_node_xy(p_node) as x2) t
+$$;
+create or replace function public._wow_travel(a integer, b integer)
+returns integer language sql immutable as $$
+  select _wow_travel_node(a, _wow_pos_node(b))
 $$;
 -- ruido determinista en [-0.5,0.5)
 create or replace function public._wow_noise(p_seed bigint, p_salt bigint)
@@ -133,6 +191,13 @@ revoke all on function public._wow_hp(text) from public, anon, authenticated;
 revoke all on function public._wow_counter(text, text) from public, anon, authenticated;
 revoke all on function public._wow_cargo(text) from public, anon, authenticated;
 revoke all on function public._wow_travel(integer, integer) from public, anon, authenticated;
+revoke all on function public._wow_travel_node(integer, integer) from public, anon, authenticated;
+revoke all on function public._wow_pos_node(integer) from public, anon, authenticated;
+revoke all on function public._wow_node_xy(integer) from public, anon, authenticated;
+revoke all on function public._wow_node_ald(integer) from public, anon, authenticated;
+revoke all on function public._wow_node_cont(integer) from public, anon, authenticated;
+revoke all on function public._wow_node_base(integer) from public, anon, authenticated;
+revoke all on function public._wow_node_ctr(integer) from public, anon, authenticated;
 revoke all on function public._wow_noise(bigint, bigint) from public, anon, authenticated;
 
 -- ---------- SIMULADOR DE BATALLA (por rondas) ----------
@@ -288,6 +353,12 @@ declare
 begin
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
 
+    -- ===== ejercito contra un trono/aldea: la accion ocurre al llegar =====
+    if f.kind in ('throne_atk','throne_rein','throne_claim') then
+      perform _wow_throne_land(f.id);
+      continue;
+    end if;
+
     -- ===== mision de espionaje =====
     if f.kind = 'spy' then
       select * into zt from wow_users where id = f.target;
@@ -386,7 +457,9 @@ begin
         ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.attacker))
       where id = f.attacker;
     insert into wow_reports(owner, kind, data, created)
-      values (f.attacker, 'return', jsonb_build_object('dir','return','who','','win',true,'loot',f.loot,'created',ms), ms);
+      values (f.attacker, 'return', jsonb_build_object('dir','return',
+        'who', coalesce((select name from wow_thrones th where th.node = f.node), ''),
+        'win',true,'loot',f.loot,'created',ms), ms);
     delete from wow_fleets where id = f.id;
   end loop;
 end $$;
@@ -475,8 +548,9 @@ begin
     'now', ms,
     'fleets', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'id', f.id, 'mine', f.attacker = u.id, 'kind', f.kind,
-        'who', (select name from wow_users where id = case when f.attacker = u.id then f.target else f.attacker end),
+        'id', f.id, 'mine', f.attacker = u.id, 'kind', f.kind, 'node', f.node,
+        'who', coalesce((select name from wow_thrones th where th.node = f.node),
+                        (select name from wow_users where id = case when f.attacker = u.id then f.target else f.attacker end)),
         'state', f.state, 'troops', f.troops, 'loot', f.loot, 'arrive', f.arrive_ms
       ) order by f.arrive_ms)
       from wow_fleets f where f.attacker = u.id or (f.target = u.id and f.kind <> 'spy')
@@ -553,18 +627,27 @@ begin
   ms := (extract(epoch from now())*1000)::bigint;
   select jsonb_build_object('now', ms, 'marches', coalesce((
     select jsonb_agg(jsonb_build_object(
-      'id', f.id, 'state', f.state, 'kind', f.kind, 'mine', f.attacker = u.id,
-      'from', case when f.state = 'outbound' then a.pos else d.pos end,
-      'to',   case when f.state = 'outbound' then d.pos else a.pos end,
+      'id', f.id, 'state', f.state, 'kind', f.kind, 'mine', (f.attacker = u.id),
+      'from_node', case when f.node is not null and f.state <> 'outbound' then f.node
+                        when f.node is not null then _wow_pos_node(a.pos)
+                        when f.state = 'outbound' then _wow_pos_node(a.pos)
+                        else _wow_pos_node(coalesce(d.pos, a.pos)) end,
+      'to_node',   case when f.node is not null and f.state <> 'outbound' then _wow_pos_node(a.pos)
+                        when f.node is not null then f.node
+                        when f.state = 'outbound' then _wow_pos_node(coalesce(d.pos, a.pos))
+                        else _wow_pos_node(a.pos) end,
+      'attacker', a.name, 'throne', (select name from wow_thrones th where th.node = f.node),
+      'target', coalesce((select name from wow_thrones th where th.node = f.node), d.name),
+      'from', case when f.node is not null then null
+                   when f.state = 'outbound' then a.pos else coalesce(d.pos, a.pos) end,
+      'to',   case when f.node is not null then null
+                   when f.state = 'outbound' then coalesce(d.pos, a.pos) else a.pos end,
       'depart', f.leg_start_ms, 'arrive', f.arrive_ms
     ) order by f.arrive_ms)
     from wow_fleets f
     join wow_users a on a.id = f.attacker
-    join wow_users d on d.id = f.target
-    where f.leg_start_ms > 0 and (
-      (f.kind = 'attack' and f.state in ('outbound','returning'))
-      or (f.kind = 'spy' and f.state = 'outbound' and f.attacker = u.id)
-    )
+    left join wow_users d on d.id = f.target
+    where f.leg_start_ms > 0
   ), '[]')) into out;
   return out;
 end $$;
