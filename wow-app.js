@@ -399,6 +399,7 @@ const Game = {
       const onEl = $("#gOnline"); if(onEl) onEl.textContent = "🟢 " + un(this.st.online || 0) + " en línea";
       const ab = $("#gAlly");
       if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
+      if(this.st.ally_tag && (!this._diploTs || Date.now() - this._diploTs > 60000)) this.loadDiplo(true);
       this.renderBld(); this.renderTroop(); this.tick();
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
       if(this.tab === "map") this.loadMap();
@@ -805,11 +806,12 @@ const Game = {
     const fac = r.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
     const myTag = (this.st && this.st.ally_tag) || "";
     const sameAlly = !!r.alliance && r.alliance === myTag;
+    const peace = !!r.alliance && ((this._diplo && this._diplo.pacts) || []).some(p => r.alliance === (p.i_am_a ? p.b_tag : p.a_tag));
     const prot = this.protect;
     const myPts = (this.st && this.st.points) || 0;
     const isNovice = (prot != null && prot > 0 && !r.me && r.points < prot);
     const tooWeak = (prot != null && prot > 0 && !r.me && !isNovice && (myPts - r.points) >= prot);
-    const canAtk = !r.me && !sameAlly && !isNovice && !tooWeak;
+    const canAtk = !r.me && !sameAlly && !peace && !isNovice && !tooWeak;
     const blockMsg = isNovice
       ? '🔰 Reino protegido por ser novato (menos de ' + un(prot) + ' puntos): no puedes atacarlo.'
       : (tooWeak ? '⚖️ Hay demasiada diferencia de puntos (' + un(prot) + '): busca un rival más parejo.' : '');
@@ -822,7 +824,8 @@ const Game = {
         <button class="btn" id="profAtk">⚔️ Atacar</button>
         <button class="btn sm" id="profSpy" style="align-self:center">🔍 Espiar (150 💰)</button></div>` : ""}
       ${blockMsg && !r.me ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">' + blockMsg + '</p>' : ""}
-      ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo ni espiarlo.</p>' : ""}`);
+      ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo ni espiarlo.</p>' : ""}
+      ${peace && !r.me ? '<p style="text-align:center;color:var(--green);font-size:12px;margin-top:10px">🤝 Hay paz con [' + esc(r.alliance) + ']: no puedes atacarlo ni espiarlo.</p>' : ""}`);
     const ab = document.getElementById("profAtk");
     if(ab) ab.onclick = () => this.openAttack(r);
     const sb = document.getElementById("profSpy");
@@ -1004,6 +1007,12 @@ const Game = {
     this.updateMilTimers();
   },
   openAttack(r){
+    const peace = ((this._diplo && this._diplo.pacts) || []).find(p => r.alliance && r.alliance === (p.i_am_a ? p.b_tag : p.a_tag));
+    if(peace){
+      modal(`<h2 style="margin-top:0;color:var(--gold)">🤝 Paz con [${esc(r.alliance)}]</h2>
+        <p style="color:var(--dim)">Tenéis un pacto de no agresión: no se puede atacar ni espiar a esa alianza hasta que uno de los dos líderes lo cancele.</p>`);
+      return;
+    }
     const troops = ((this.st && this.st.troops) || []).filter(t => t.qty > 0);
     if(!troops.length){
       modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
@@ -1111,8 +1120,8 @@ const Game = {
     html += `</div>
       <div class="secTitle">🏛️ Arcón de la alianza</div>
       ${this.vaultHtml(v)}
-      <div class="secTitle">⚔️ Guerras</div>
-      <div id="warsBox" class="warsBox"></div>
+      <div class="secTitle">🤝 Diplomacia</div>
+      <div id="diploBox" class="warsBox"></div>
       <div class="secTitle">💬 Chat de la alianza</div>
       <div id="chatMsgs" class="chatBox"></div>
       <div class="chatRow"><input id="chatIn" placeholder="Escribe a tu alianza…" maxlength="300"><button class="btn sm" id="chatSend">Enviar</button></div>
@@ -1128,7 +1137,7 @@ const Game = {
     $("#chatSend").onclick = () => this.sendChat();
     $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
-    await this.loadWars();
+    await this.loadDiplo();
     await this.loadChat();
     await this.loadAllyRank("#allyRank");
     this.startChatPoll();
@@ -1205,42 +1214,122 @@ const Game = {
       </div>`).join("");
     }catch(e){ toast(shortMsg(e), true); }
   },
-  async loadWars(){
+  async loadDiplo(silent){
     try{
-      const data = await sbRpc("wow_ally_wars", { p_token: this.me.token });
-      const box = document.getElementById("warsBox"); if(!box) return;
-      const wars = (data && data.wars) || [];
-      const isLeader = !!(this._allyInfo && this._allyInfo.leader === this.me.name);
-      let html = "";
-      if(!wars.length) html += '<div class="empty" style="padding:12px">No hay guerras activas. Reina la paz en Azeroth.</div>';
-      wars.forEach(w => {
-        const hrs = Math.max(0, Math.ceil((w.ends - Date.now()) / 3600000));
-        html += `<div class="warCard${w.mine ? " mine" : ""}">
-          <div class="warSide">[${esc(w.a_tag)}] ${esc(w.a_name)}</div>
-          <div class="warScore">${w.a_score} : ${w.b_score}</div>
-          <div class="warSide r">${esc(w.b_name)} [${esc(w.b_tag)}]</div>
-          <div class="warFoot">⏳ ${hrs} h${w.mine ? ' · <button class="btn sm danger" data-surrender="${w.id}">Rendirse</button>' : ""}</div>
-        </div>`;
-      });
-      if(isLeader){
-        const list = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || [];
-        const atWar = wars.filter(w => w.mine).map(w => w.i_am_a ? w.b : w.a);
-        const targets = list.filter(a => !a.mine && !atWars.includes(a.id));
-        if(targets.length){
-          html += `<div class="warDecl"><select id="warTarget">` +
-            targets.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}</option>`).join("") +
+      this._diplo = await sbRpc("wow_ally_diplo", { p_token: this.me.token }) || {};
+      this._diploTs = Date.now();
+    }catch(e){ if(!silent) toast(shortMsg(e), true); return; }
+    const box = document.getElementById("diploBox");
+    if(box) await this.renderDiplo(box);
+  },
+  async renderDiplo(box){
+    let wars = [];
+    try{ const w = await sbRpc("wow_ally_wars", { p_token: this.me.token }); wars = (w && w.wars) || []; }catch(_){}
+    const d = this._diplo || {};
+    const pacts = d.pacts || [], oin = d.offers_in || [], oout = d.offers_out || [];
+    const isLeader = !!d.is_leader;
+    const now = Date.now();
+    const dur = h => !h ? "sin caducidad" : (h + " h");
+    const rtag = p => (p.i_am_a ? p.b_tag : p.a_tag);
+    const rname = p => (p.i_am_a ? p.b_name : p.a_name);
+    let html = '<div class="secSub">⚔️ Guerras activas</div>';
+    if(!wars.length) html += '<div class="empty" style="padding:10px">No hay guerras activas. Reina la paz en Azeroth.</div>';
+    wars.forEach(w => {
+      const hrs = Math.max(0, Math.ceil((w.ends - now) / 3600000));
+      html += `<div class="warCard${w.mine ? " mine" : ""}">
+        <div class="warSide">[${esc(w.a_tag)}] ${esc(w.a_name)}</div>
+        <div class="warScore">${w.a_score} : ${w.b_score}</div>
+        <div class="warSide r">${esc(w.b_name)} [${esc(w.b_tag)}]</div>
+        <div class="warFoot">⏳ ${hrs} h${w.mine && isLeader ? ' · <button class="btn sm danger" data-surrender="' + w.id + '">Rendirse</button>' : ""}</div>
+      </div>`;
+    });
+    html += '<div class="secSub">🤝 Pactos de no agresión</div>';
+    if(!pacts.length) html += '<div class="empty" style="padding:10px">Sin pactos. Con un pacto vigente no se puede atacar ni espiar a esa alianza.</div>';
+    pacts.forEach(p => {
+      const left = p.ends > 0 ? (Math.max(0, Math.ceil((p.ends - now) / 3600000)) + " h restantes") : "sin caducidad";
+      html += `<div class="pactCard"><div class="pactWho">[${esc(rtag(p))}] ${esc(rname(p))}</div>
+        <div class="pactMeta">⏳ ${left} · duración ${dur(p.hours)}</div>
+        ${isLeader ? '<button class="btn sm danger" data-pactcancel="' + p.id + '">Cancelar pacto</button>' : ""}</div>`;
+    });
+    if(oin.length || oout.length) html += '<div class="secSub">📨 Ofertas de pacto</div>';
+    oin.forEach(p => {
+      html += `<div class="pactCard"><div class="pactWho">[${esc(rtag(p))}] ${esc(rname(p))} propone ${dur(p.hours)}</div>
+        <div class="pactMeta">Caduca en ${Math.max(1, Math.ceil((p.offer_ends - now) / 3600000))} h</div>
+        ${isLeader ? '<button class="btn sm" data-pactok="' + p.id + '">✅ Aceptar</button><button class="btn sm danger" data-pactno="' + p.id + '">❌ Rechazar</button>' : '<span class="pactMeta">Solo tu líder puede responder.</span>'}</div>`;
+    });
+    oout.forEach(p => {
+      html += `<div class="pactCard"><div class="pactWho">Propuesta enviada a [${esc(rtag(p))}] ${esc(rname(p))}</div>
+        <div class="pactMeta">${dur(p.hours)} · esperando respuesta del líder rival</div>
+        ${isLeader ? '<button class="btn sm danger" data-pactcancel="' + p.id + '">Retirar oferta</button>' : ""}</div>`;
+    });
+    if(isLeader){
+      try{ this._allyList = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || []; }catch(_){ this._allyList = this._allyList || []; }
+      const busy = pacts.map(rtag).concat(oin.map(rtag), oout.map(rtag));
+      const atWar = wars.filter(w => w.mine).map(w => w.i_am_a ? w.b_tag : w.a_tag);
+      const list = (this._allyList || []).filter(a => !a.mine);
+      if(list.length){
+        html += `<div class="warDecl"><span class="pactMeta" style="align-self:center">Pactar</span><select id="pactTarget">` +
+          list.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}${busy.indexOf(a.tag) >= 0 ? " (en curso)" : ""}</option>`).join("") +
+          `</select><select id="pactHours"><option value="24">24 h</option><option value="48">48 h</option><option value="72">72 h</option><option value="0">sin caducidad</option></select>` +
+          `<button class="btn sm" id="pactGo">🤝 Proponer</button></div>`;
+        const warTargets = list.filter(a => atWar.indexOf(a.tag) < 0);
+        if(warTargets.length){
+          html += `<div class="warDecl"><span class="pactMeta" style="align-self:center">Guerra</span><select id="warTarget">` +
+            warTargets.map(a => `<option value="${esc(a.id)}">[${esc(a.tag)}] ${esc(a.name)}</option>`).join("") +
             `</select><button class="btn sm danger" id="warGo">⚔️ Declarar guerra</button></div>`;
         }
       }
-      box.innerHTML = html;
-      const go = document.getElementById("warGo"); if(go) go.onclick = () => this.declareWar();
+    }
+    box.innerHTML = html;
+    box.querySelectorAll("[data-surrender]").forEach(b => { b.onclick = () => this.surrenderWar(b.dataset.surrender); });
+    box.querySelectorAll("[data-pactok]").forEach(b => { b.onclick = () => this.answerPact(b.dataset.pactok, true); });
+    box.querySelectorAll("[data-pactno]").forEach(b => { b.onclick = () => this.answerPact(b.dataset.pactno, false); });
+    box.querySelectorAll("[data-pactcancel]").forEach(b => { b.onclick = () => this.cancelPact(b.dataset.pactcancel); });
+    const pg = document.getElementById("pactGo"); if(pg) pg.onclick = () => this.offerPact();
+    const wg = document.getElementById("warGo"); if(wg) wg.onclick = () => this.declareWar();
+  },
+  async surrenderWar(id){
+    if(!confirm("¿Rendirte? La guerra termina y cuenta como derrota para tu alianza.")) return;
+    try{
+      await sbRpc("wow_ally_war_surrender", { p_token: this.me.token, p_id: Number(id) });
+      toast("🏳️ Te has rendido.");
+      await this.loadDiplo();
+      if(this._allyInfo) await this.loadAllyRank("#allyRank");
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async offerPact(){
+    const t = document.getElementById("pactTarget"), h = document.getElementById("pactHours");
+    if(!t || !t.value) return;
+    try{
+      await sbRpc("wow_ally_pact_offer", { p_token: this.me.token, p_target: t.value, p_hours: Number(h ? h.value : 24) });
+      toast("📨 Propuesta de pacto enviada.");
+      await this.loadDiplo();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async answerPact(id, ok){
+    try{
+      await sbRpc("wow_ally_pact_answer", { p_token: this.me.token, p_id: Number(id), p_accept: !!ok });
+      toast(ok ? "🤝 Pacto firmado." : "Oferta rechazada.");
+      await this.loadDiplo();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async cancelPact(id){
+    if(!confirm("¿Cancelar? El pacto deja de proteger de inmediato y ya podréis atacaros.")) return;
+    try{
+      await sbRpc("wow_ally_pact_cancel", { p_token: this.me.token, p_id: Number(id) });
+      toast("Pacto cancelado.");
+      await this.loadDiplo();
     }catch(e){ toast(shortMsg(e), true); }
   },
   async declareWar(){
     const sel = document.getElementById("warTarget"); const tid = sel ? sel.value : "";
     if(!tid) return;
-    if(!confirm("¿Declarar la guerra? Durará 48 horas y cada victoria en combate sumará puntos a tu alianza.")) return;
-    try{ await sbRpc("wow_ally_war_declare", { p_token: this.me.token, p_target: tid }); await this.refresh(); await this.loadWars(); toast("¡Guerra declarada!"); }
+    const tagSel = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : "";
+    const pact = ((this._diplo && this._diplo.pacts) || []).some(p => tagSel.indexOf("[" + (p.i_am_a ? p.b_tag : p.a_tag) + "]") === 0);
+    if(!confirm(pact
+      ? "¿Declarar la guerra? Romperás el pacto de no agresión: las treguas cuentan como canceladas y la guerra durará 48 horas."
+      : "¿Declarar la guerra? Durará 48 horas y cada victoria en combate sumará puntos a tu alianza.")) return;
+    try{ await sbRpc("wow_ally_war_declare", { p_token: this.me.token, p_target: tid }); toast("⚔️ ¡Guerra declarada!"); await this.loadDiplo(); }
     catch(e){ toast(shortMsg(e), true); }
   },
   stopChatPoll(){ clearInterval(this.chatTimer); this.chatTimer = null; },
