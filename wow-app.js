@@ -1259,6 +1259,7 @@ const Game = {
       try{ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this.aldeaShare = a && a.share; this.aldeaRates = (a && a.rates) || this.aldeaRates; }catch(_){ this.aldeaShare = this.aldeaShare; }
       try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
+      try{ const bl = await sbRpc("wow_admin_bot_list", { p_token: this.me.token }); this.bots = (bl && bl.bots) || []; this.botAuto = !!(bl && bl.auto); this.botNow = bl && bl.now; this.botProtect = bl && bl.protect; }catch(_){ this.bots = this.bots || []; }
     }
     catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
@@ -1268,12 +1269,15 @@ const Game = {
     const prot = (this.protect != null) ? this.protect : 1000;
     if(!d){ el.innerHTML = '<p class="empty">Sin datos.</p>'; return; }
     const users = d.users || [];
+    const autos = this.bots || [];
     const rows = users.map(u => {
       const self = u.id === d.me;
+      const isAuto = autos.some(b => b.id === u.id);
       return '<div class="admRow' + (u.active ? "" : " banned") + '">' +
         '<div class="admHead"><b>' + esc(u.name) + '</b> <span class="admId">(' + esc(u.id) + ')</span>' +
           (u.is_admin ? '<span class="admTag">ADMIN</span>' : '') +
           (u.active ? '' : '<span class="admTag ban">BANEADO</span>') +
+          (isAuto ? '<span class="admTag" title="reino que juega solo">🤖 auto</span>' : '') +
           '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
         '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
           (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + (u.points < prot ? ' · 🔰 protegido' : '') + '</div>' +
@@ -1291,10 +1295,12 @@ const Game = {
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
       ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · 🟢 ' + un((this.st && this.st.online) || 0) + ' en línea (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
+      '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div class="admList">' + rows + '</div>';
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
+    const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
     el.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => this.admAction(b.dataset.a, b.dataset.id, b.dataset.on));
   },
   admFee(){
@@ -1357,6 +1363,108 @@ const Game = {
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
+  },
+  /* ----- reinos automáticos: juegan solos, como cualquier otro reino ----- */
+  botLevelName(l){ return ({ 1:"Muy tranquilo", 2:"Tranquilo", 3:"Normal", 4:"Agresivo", 5:"Muy agresivo" })[Number(l)] || "Normal"; },
+  botLevelOpts(sel){
+    return [1,2,3,4,5].map(n => '<option value="' + n + '"' + (n === Number(sel) ? ' selected' : '') + '>' + n + ' · ' + this.botLevelName(n) + '</option>').join("");
+  },
+  botAgo(ms, now){
+    if(!ms) return "nunca";
+    const m = Math.max(0, Math.round((now - Number(ms)) / 60000));
+    if(m < 1) return "hace un momento";
+    if(m < 60) return "hace " + m + " min";
+    const h = Math.round(m / 60);
+    return h < 24 ? "hace " + h + " h" : "hace " + Math.round(h / 24) + " d";
+  },
+  async admBotsPanel(){
+    try{
+      const r = await sbRpc("wow_admin_bot_list", { p_token: this.me.token });
+      this.bots = r.bots || []; this.botAuto = !!r.auto; this.botNow = r.now; this.botProtect = r.protect;
+    }catch(e){ return toast(shortMsg(e), true); }
+    this.renderBotsPanel();
+  },
+  renderBotsPanel(){
+    const list = this.bots || [], auto = !!this.botAuto, now = Number(this.botNow || Date.now());
+    const prot = (this.botProtect != null ? this.botProtect : 1000);
+    const rows = list.map(b => {
+      const lv = Number(b.level) || 3, seed = b.seed || {};
+      const when = b.online ? '🟢 en línea ahora' : '⚫ visto ' + this.botAgo(b.last, now);
+      return '<div class="admRow' + (b.active ? '' : ' banned') + '">' +
+        '<div class="admHead"><b>🤖 ' + esc(b.name) + '</b> <span class="admId">(' + esc(b.id) + ')</span>' +
+          (b.active ? '' : '<span class="admTag ban">PAUSADO</span>') +
+          '<span class="admFac">' + (b.faction === 'horda' ? '⚔️ Horda' : '🛡️ Alianza') + '</span></div>' +
+        '<div class="admStats">🏆 ' + un(b.points) + ' · ⚔️ ' + un(b.troops) + ' tropas · 🏰 ' + un(b.nodes) + ' plazas · ' +
+          'nivel ' + lv + ' (' + this.botLevelName(lv) + ') · nace con edificios ' + un(seed.bld || 0) + ' y ' + un(seed.trp || 0) + ' tropas · ' + when + '</div>' +
+        '<div class="admActs">' +
+          '<label style="font-size:12px;color:var(--dim);display:flex;align-items:center;gap:4px">🎚 <select data-b="lvl" data-id="' + esc(b.id) + '">' + this.botLevelOpts(lv) + '</select></label>' +
+          '<button class="btn sm" data-b="on" data-id="' + esc(b.id) + '" data-on="' + (b.active ? 1 : 0) + '">' + (b.active ? '⏸ Pausar' : '▶️ Reanudar') + '</button>' +
+          '<button class="btn sm danger" data-b="del" data-id="' + esc(b.id) + '">🗑 Quitar</button>' +
+        '</div></div>';
+    }).join('') || '<p class="empty">Todavía no hay ninguno. Crea el primero aquí abajo.</p>';
+    modal('<h2 style="margin-top:0;color:var(--gold)">🤖 Reinos automáticos</h2>' +
+      '<p class="hint">Son reinos normales que juegan solos: producen, construyen, entrenan y atacan a otros reinos. ' +
+      'Sirven para que el mundo siga con movimiento cuando hay poca gente conectada. Ocupan su casilla en el mapa y salen en el ranking y en el contador en línea como cualquier otro. ' +
+      'Se crean de uno en uno, escogiendo su nombre, su bando y su dificultad.</p>' +
+      '<label style="display:flex;align-items:center;gap:8px;margin:10px 0 4px"><input type="checkbox" id="botAuto"' + (auto ? ' checked' : '') + ' style="width:auto"> <span>Dejar que jueguen solos (un turno por minuto)</span></label>' +
+      '<div class="admList" style="max-height:40vh;overflow:auto;margin-top:10px">' + rows + '</div>' +
+      '<h3 style="margin:14px 0 0;color:var(--gold);font-size:15px">Crear uno</h3>' +
+      '<p class="hint">Respetan la protección de novatos: no atacan ni son atacados por debajo de ' + un(prot) + ' puntos. El nivel fija con cuánto nacen (edificios y tropas) y con cuánta frecuencia actúan.</p>' +
+      '<div class="admInputs">' +
+        '<label>Nombre del reino<input id="botName" type="text" maxlength="20" placeholder="P. ej. Falkreath"></label>' +
+        '<label>Bando<select id="botFac"><option value="alianza">🛡️ Alianza</option><option value="horda">⚔️ Horda</option></select></label>' +
+        '<label>Dificultad<select id="botLvl">' + this.botLevelOpts(3) + '</select></label>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">' +
+        '<button class="btn" id="botAdd">➕ Crear reino</button>' +
+        '<button class="btn sm" id="botRun">⏭️ Jugar ahora</button>' +
+        (list.length ? '<button class="btn sm danger" id="botPurge">🗑 Quitarlos todos</button>' : '') +
+      '</div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    const aa = $("#botAuto"); if(aa) aa.onchange = async () => {
+      try{ const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: aa.checked });
+        this.botAuto = !!r.auto; toast(r.auto ? "Jugarán solos cada minuto." : "Pausados todos."); }
+      catch(e){ aa.checked = !!this.botAuto; toast(shortMsg(e), true); }
+    };
+    const ab = $("#botAdd"); if(ab) ab.onclick = async () => {
+      const nm = ($("#botName").value || "").trim();
+      if(nm.length < 2) return notice($("#admMsg"), "Escribe el nombre del reino.", "danger");
+      ab.disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_bot_create", { p_token: this.me.token, p_name: nm, p_faction: $("#botFac").value, p_level: Number($("#botLvl").value) });
+        toast('"' + r.name + '" nace en la casilla ' + r.pos + ' con ' + un(r.points) + ' puntos.');
+        await this.admBotsPanel();
+      }catch(e){ ab.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const ar = $("#botRun"); if(ar) ar.onclick = async () => {
+      ar.disabled = true;
+      try{ const r = await sbRpc("wow_admin_bot_run", { p_token: this.me.token }); toast("Han jugado " + un(r.acted || 0) + " reinos."); await this.admBotsPanel(); }
+      catch(e){ ar.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const ap = $("#botPurge"); if(ap) ap.onclick = async () => {
+      if(!confirm("¿Quitar TODOS los reinos automáticos? Desaparecerán del mapa y del ranking.")) return;
+      ap.disabled = true;
+      try{ const r = await sbRpc("wow_admin_bot_purge", { p_token: this.me.token }); toast("Quitados " + un(r.deleted || 0) + " reinos."); await this.admBotsPanel(); }
+      catch(e){ ap.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    document.querySelectorAll("#modalBox [data-b]").forEach(el => {
+      if(el.dataset.b === "lvl") el.onchange = async () => {
+        try{ await sbRpc("wow_admin_bot_set", { p_token: this.me.token, p_id: el.dataset.id, p_level: Number(el.value) });
+          toast("Dificultad: " + this.botLevelName(el.value) + "."); await this.admBotsPanel(); }
+        catch(e){ toast(shortMsg(e), true); }
+      };
+      if(el.dataset.b === "on") el.onclick = async () => {
+        const on = el.dataset.on !== "1";
+        try{ await sbRpc("wow_admin_bot_stop", { p_token: this.me.token, p_id: el.dataset.id, p_on: on });
+          toast(on ? "Vuelve a jugar." : "Pausado."); await this.admBotsPanel(); }
+        catch(e){ toast(shortMsg(e), true); }
+      };
+      if(el.dataset.b === "del") el.onclick = async () => {
+        if(!confirm("¿Quitar este reino? Se borrará con todo lo suyo (edificios, tropas y plazas).")) return;
+        try{ await sbRpc("wow_admin_bot_del", { p_token: this.me.token, p_id: el.dataset.id }); toast("Reino quitado."); await this.admBotsPanel(); }
+        catch(e){ toast(shortMsg(e), true); }
+      };
+    });
   },
   admUser(id){ return (this.adm && this.adm.users || []).find(x => x.id === id); },
   admAction(a, id, on){

@@ -125,6 +125,17 @@ begin
 end $$;
 grant execute on function public.wow_admin_ban(text, text, boolean) to anon, authenticated;
 
+-- borra un reino y deja neutrales los tronos/aldeas que tuviera
+-- (las demas tablas caen solas por on delete cascade)
+create or replace function public._wow_delete_kingdom(p_id text)
+returns void language plpgsql security definer set search_path to 'public' as $$
+begin
+  update wow_thrones set holder = null, holder_name = '', since_ms = 0, garrison = '{}'::jsonb
+    where holder = p_id;
+  delete from wow_users where id = p_id;
+end $$;
+revoke all on function public._wow_delete_kingdom(text) from public, anon, authenticated;
+
 -- borrar cuenta (cascade limpia todo)
 create or replace function public.wow_admin_delete(p_token text, p_id text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
@@ -133,7 +144,7 @@ begin
   a := _wow_admin(p_token);
   if p_id = a.id then raise exception 'No puedes borrar tu propia cuenta de administrador.'; end if;
   if not exists(select 1 from wow_users where id = p_id) then raise exception 'Ese reino ya no existe.'; end if;
-  delete from wow_users where id = p_id;
+  perform _wow_delete_kingdom(p_id);
   return jsonb_build_object('ok', true);
 end $$;
 grant execute on function public.wow_admin_delete(text, text) to anon, authenticated;
