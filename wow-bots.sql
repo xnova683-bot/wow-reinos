@@ -56,16 +56,28 @@ revoke all on function public._wow_bot_auto() from public, anon, authenticated;
 -- ================================================================
 
 -- crear un reino automatico
-create or replace function public.wow_admin_bot_create(p_token text, p_name text, p_faction text, p_level integer)
+-- p_name = nombre del reino (el que se ve); p_king = nombre de usuario/rey (con el que entra);
+-- p_alliance = alianza de nacimiento (opcional)
+drop function if exists public.wow_admin_bot_create(text, text, text, integer);
+create or replace function public.wow_admin_bot_create(p_token text, p_name text, p_faction text, p_level integer,
+                                                       p_king text default null, p_alliance text default null)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users; nm text; fac text; cfg jsonb; rid jsonb; v_id text;
-        v_salt text; v_hash text; tk text; cap numeric; blv integer; trp integer; ms bigint;
+declare a wow_users; nm text; king text; fac text; cfg jsonb; rid jsonb; v_id text;
+        v_salt text; v_hash text; tk text; cap numeric; blv integer; trp integer; ms bigint; al text; cnt integer;
 begin
   a := _wow_admin(p_token);
   nm := btrim(coalesce(p_name,''));
+  king := btrim(coalesce(p_king,''));
   fac := lower(btrim(coalesce(p_faction,'')));
+  al := btrim(coalesce(p_alliance,''));
   if length(nm) < 2 then raise exception 'Escribe el nombre del reino.'; end if;
+  if king = '' then king := nm; end if;
   if fac not in ('alianza','horda') then raise exception 'Elige Alianza o Horda.'; end if;
+  if al <> '' then
+    if not exists(select 1 from wow_alliances where id = al) then raise exception 'Esa alianza no existe.'; end if;
+    select count(*) into cnt from wow_users w where w.alliance = al;
+    if cnt >= 5 then raise exception 'Esa alianza ya está llena (máximo 5 miembros).'; end if;
+  end if;
   cfg := _wow_bot_level(p_level);
   blv := (cfg->>'bld')::int; trp := (cfg->>'trp')::int;
   ms := (extract(epoch from now())*1000)::bigint;
@@ -73,7 +85,7 @@ begin
   -- se registra como cualquier reino (ocupa casilla, elige continente...)
   v_salt := md5(random()::text || clock_timestamp()::text);
   v_hash := md5(v_salt || 'reino-automatico');
-  rid := wow_register(nm, nm, fac, v_salt, v_hash, ms);
+  rid := wow_register(king, nm, fac, v_salt, v_hash, ms);
   v_id := rid->>'id';
 
   -- semilla: edificios, tropas (solo las que su cuartel permite) y recursos
@@ -98,10 +110,59 @@ begin
   insert into wow_bots(user_id, level, agro, token, next_ms, last_act_ms, active, created)
     values (v_id, greatest(1, least(5, coalesce(p_level,2))), (cfg->>'agro')::int, tk, ms, 0, true, ms);
 
-  return jsonb_build_object('ok', true, 'id', v_id, 'name', nm, 'faction', fac,
+  -- alianza de nacimiento (si se pidio y cabe)
+  if al <> '' then update wow_users set alliance = al where id = v_id; end if;
+
+  return jsonb_build_object('ok', true, 'id', v_id, 'king', v_id, 'name', nm, 'faction', fac, 'alliance', nullif(al,''),
     'pos', rid->>'pos', 'level', greatest(1, least(5, coalesce(p_level,2))), 'points', _wow_points(v_id));
 end $$;
-grant execute on function public.wow_admin_bot_create(text, text, text, integer) to anon, authenticated;
+grant execute on function public.wow_admin_bot_create(text, text, text, integer, text, text) to anon, authenticated;
+
+-- meter (o sacar) reinos automaticos de una alianza, para que luchen juntos
+-- p_id vacio = todos los reinos automaticos; p_alliance vacio = dejarlos sin alianza
+create or replace function public.wow_admin_bot_ally(p_token text, p_id text, p_alliance text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; r record; al text; cnt integer; hechos integer := 0; llenos integer := 0;
+begin
+  a := _wow_admin(p_token);
+  al := btrim(coalesce(p_alliance,''));
+  if al <> '' then
+    if not exists(select 1 from wow_alliances where id = al) then raise exception 'Esa alianza no existe.'; end if;
+  else
+    al := null;
+  end if;
+  for r in select b.user_id from wow_bots b where coalesce(btrim(p_id),'') = '' or b.user_id = p_id loop
+    if al is null then
+      update wow_users set alliance = null where id = r.user_id;
+      hechos := hechos + 1;
+    else
+      select count(*) into cnt from wow_users w where w.alliance = al and w.id <> r.user_id;
+      if cnt >= 5 then
+        llenos := llenos + 1;
+      else
+        update wow_users set alliance = al where id = r.user_id;
+        hechos := hechos + 1;
+      end if;
+    end if;
+  end loop;
+  return jsonb_build_object('ok', true, 'n', hechos, 'llenos', llenos, 'alliance', al);
+end $$;
+grant execute on function public.wow_admin_bot_ally(text, text, text) to anon, authenticated;
+
+-- cambiar el nombre visible del reino (el nombre de usuario no se toca: es su clave)
+create or replace function public.wow_admin_bot_rename(p_token text, p_id text, p_name text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; nm text;
+begin
+  a := _wow_admin(p_token);
+  if not exists(select 1 from wow_bots where user_id = p_id) then raise exception 'Ese reino no es automático.'; end if;
+  nm := btrim(coalesce(p_name,''));
+  if length(nm) < 2 then raise exception 'Escribe el nombre del reino.'; end if;
+  if length(nm) > 20 then raise exception 'El nombre del reino no puede pasar de 20 letras.'; end if;
+  update wow_users set name = nm where id = p_id;
+  return jsonb_build_object('ok', true, 'name', nm);
+end $$;
+grant execute on function public.wow_admin_bot_rename(text, text, text) to anon, authenticated;
 
 -- listado de reinos automaticos
 create or replace function public.wow_admin_bot_list(p_token text)
@@ -116,6 +177,7 @@ begin
     'bots', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos, 'level', b.level,
+        'alliance', w.alliance, 'atag', (select aa.tag from wow_alliances aa where aa.id = w.alliance),
         'points', _wow_points(w.id),
         'troops', coalesce((select sum(qty) from wow_troops t where t.owner_id = w.id),0),
         'nodes', (select count(*) from wow_thrones th where th.holder = w.id),
@@ -221,7 +283,7 @@ create or replace function public._wow_bot_act(p_id text)
 returns void language plpgsql security definer set search_path to 'public' as $$
 declare
   b wow_bots; cfg jsonb; lvl integer; agro integer; base integer;
-  ms bigint; tok text; tk text; bk text; cuartel integer; prot numeric;
+  ms bigint; tok text; tk text; bk text; cuartel integer; prot numeric; ua text;
   mypts numeric; army jsonb; tgt record; node integer; nx bigint; q integer;
 begin
   select * into b from wow_bots where user_id = p_id and active;
@@ -282,12 +344,26 @@ begin
       if node is not null then
         begin perform wow_throne_attack(tok, node, army); exception when others then null; end;
       else
-        -- b) atacar al rival mas debil que siga siendo un objetivo valido
         prot := _wow_protect_below();
-        select w.id into tgt from wow_users w
-          where w.active and not w.is_admin and w.id <> p_id
-            and (prot = 0 or (_wow_points(w.id) >= prot and mypts - _wow_points(w.id) < prot))
-          order by _wow_points(w.id) asc, random() limit 1;
+        select w.alliance into ua from wow_users w where w.id = p_id;
+        tgt := null;
+        -- b) si su alianza esta en guerra, va a por el enemigo (asi luchan juntos y suman para la alianza)
+        if ua is not null then
+          select eu.id into tgt from wow_ally_wars wr
+            join wow_users eu on eu.alliance = case when wr.a = ua then wr.b else wr.a end
+            where wr.active and (wr.a = ua or wr.b = ua)
+              and eu.active and not eu.is_admin and eu.id <> p_id
+              and (prot = 0 or (_wow_points(eu.id) >= prot and mypts - _wow_points(eu.id) < prot))
+            order by _wow_points(eu.id) asc, random() limit 1;
+        end if;
+        -- c) si no, al rival mas debil que siga siendo un objetivo valido (nunca de su propia alianza)
+        if tgt.id is null then
+          select w.id into tgt from wow_users w
+            where w.active and not w.is_admin and w.id <> p_id
+              and (ua is null or w.alliance is null or w.alliance <> ua)
+              and (prot = 0 or (_wow_points(w.id) >= prot and mypts - _wow_points(w.id) < prot))
+            order by _wow_points(w.id) asc, random() limit 1;
+        end if;
         if tgt.id is not null then
           begin perform wow_attack(tok, tgt.id, army); exception when others then null; end;
         end if;

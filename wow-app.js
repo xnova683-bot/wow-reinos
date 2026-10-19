@@ -1377,10 +1377,14 @@ const Game = {
     const h = Math.round(m / 60);
     return h < 24 ? "hace " + h + " h" : "hace " + Math.round(h / 24) + " d";
   },
+  allianceOpts(sel){
+    return (this.alliances || []).map(a => '<option value="' + esc(a.id) + '"' + (a.id === sel ? ' selected' : '') + '>[' + esc(a.tag) + '] ' + esc(a.name) + ' · ' + a.members + '/5</option>').join("");
+  },
   async admBotsPanel(){
     try{
       const r = await sbRpc("wow_admin_bot_list", { p_token: this.me.token });
       this.bots = r.bots || []; this.botAuto = !!r.auto; this.botNow = r.now; this.botProtect = r.protect;
+      try{ this.alliances = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || []; }catch(_){ this.alliances = this.alliances || []; }
     }catch(e){ return toast(shortMsg(e), true); }
     this.renderBotsPanel();
   },
@@ -1391,13 +1395,16 @@ const Game = {
       const lv = Number(b.level) || 3, seed = b.seed || {};
       const when = b.online ? '🟢 en línea ahora' : '⚫ visto ' + this.botAgo(b.last, now);
       return '<div class="admRow' + (b.active ? '' : ' banned') + '">' +
-        '<div class="admHead"><b>🤖 ' + esc(b.name) + '</b> <span class="admId">(' + esc(b.id) + ')</span>' +
+        '<div class="admHead"><b>🤖 ' + esc(b.name) + '</b> <span class="admId">(usuario: ' + esc(b.id) + ')</span>' +
           (b.active ? '' : '<span class="admTag ban">PAUSADO</span>') +
+          (b.atag ? '<span class="admTag">[' + esc(b.atag) + ']</span>' : '') +
           '<span class="admFac">' + (b.faction === 'horda' ? '⚔️ Horda' : '🛡️ Alianza') + '</span></div>' +
         '<div class="admStats">🏆 ' + un(b.points) + ' · ⚔️ ' + un(b.troops) + ' tropas · 🏰 ' + un(b.nodes) + ' plazas · ' +
           'nivel ' + lv + ' (' + this.botLevelName(lv) + ') · nace con edificios ' + un(seed.bld || 0) + ' y ' + un(seed.trp || 0) + ' tropas · ' + when + '</div>' +
         '<div class="admActs">' +
           '<label style="font-size:12px;color:var(--dim);display:flex;align-items:center;gap:4px">🎚 <select data-b="lvl" data-id="' + esc(b.id) + '">' + this.botLevelOpts(lv) + '</select></label>' +
+          '<label style="font-size:12px;color:var(--dim);display:flex;align-items:center;gap:4px">🤝 <select data-b="ally" data-id="' + esc(b.id) + '"><option value="">— sin alianza —</option>' + this.allianceOpts(b.alliance || "") + '</select></label>' +
+          '<button class="btn sm" data-b="ren" data-id="' + esc(b.id) + '">✏️ Nombre del reino</button>' +
           '<button class="btn sm" data-b="on" data-id="' + esc(b.id) + '" data-on="' + (b.active ? 1 : 0) + '">' + (b.active ? '⏸ Pausar' : '▶️ Reanudar') + '</button>' +
           '<button class="btn sm danger" data-b="del" data-id="' + esc(b.id) + '">🗑 Quitar</button>' +
         '</div></div>';
@@ -1405,15 +1412,20 @@ const Game = {
     modal('<h2 style="margin-top:0;color:var(--gold)">🤖 Reinos automáticos</h2>' +
       '<p class="hint">Son reinos normales que juegan solos: producen, construyen, entrenan y atacan a otros reinos. ' +
       'Sirven para que el mundo siga con movimiento cuando hay poca gente conectada. Ocupan su casilla en el mapa y salen en el ranking y en el contador en línea como cualquier otro. ' +
-      'Se crean de uno en uno, escogiendo su nombre, su bando y su dificultad.</p>' +
+      'Cada uno tiene su <b>nombre de reino</b> (el que se ve) y su <b>nombre de usuario</b> (con el que entra), y puedes reunirlos en una <b>alianza</b>: así luchan juntos, van a por el enemigo de la alianza y cada victoria suma para ella.</p>' +
       '<label style="display:flex;align-items:center;gap:8px;margin:10px 0 4px"><input type="checkbox" id="botAuto"' + (auto ? ' checked' : '') + ' style="width:auto"> <span>Dejar que jueguen solos (un turno por minuto)</span></label>' +
-      '<div class="admList" style="max-height:40vh;overflow:auto;margin-top:10px">' + rows + '</div>' +
+      (list.length ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="hint" style="margin:0">A todos:</span>' +
+        '<select id="botAllAll" style="flex:1;min-width:140px"><option value="">— sacarlos de su alianza —</option>' + this.allianceOpts("") + '</select>' +
+        '<button class="btn sm" id="botAllGo">Meterlos en la alianza</button></div>' : '') +
+      '<div class="admList" style="max-height:38vh;overflow:auto;margin-top:10px">' + rows + '</div>' +
       '<h3 style="margin:14px 0 0;color:var(--gold);font-size:15px">Crear uno</h3>' +
       '<p class="hint">Respetan la protección de novatos: no atacan ni son atacados por debajo de ' + un(prot) + ' puntos. El nivel fija con cuánto nacen (edificios y tropas) y con cuánta frecuencia actúan.</p>' +
       '<div class="admInputs">' +
         '<label>Nombre del reino<input id="botName" type="text" maxlength="20" placeholder="P. ej. Falkreath"></label>' +
+        '<label>Nombre de usuario (rey)<input id="botKing" type="text" maxlength="20" placeholder="igual que el del reino"></label>' +
         '<label>Bando<select id="botFac"><option value="alianza">🛡️ Alianza</option><option value="horda">⚔️ Horda</option></select></label>' +
         '<label>Dificultad<select id="botLvl">' + this.botLevelOpts(3) + '</select></label>' +
+        '<label>Alianza<select id="botAll"><option value="">— sin alianza —</option>' + this.allianceOpts("") + '</select></label>' +
       '</div>' +
       '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">' +
         '<button class="btn" id="botAdd">➕ Crear reino</button>' +
@@ -1428,13 +1440,26 @@ const Game = {
     };
     const ab = $("#botAdd"); if(ab) ab.onclick = async () => {
       const nm = ($("#botName").value || "").trim();
+      const king = ($("#botKing").value || "").trim();
       if(nm.length < 2) return notice($("#admMsg"), "Escribe el nombre del reino.", "danger");
+      if(king && (king.length < 2 || king.length > 20)) return notice($("#admMsg"), "El nombre de usuario debe tener entre 2 y 20 letras.", "danger");
       ab.disabled = true;
       try{
-        const r = await sbRpc("wow_admin_bot_create", { p_token: this.me.token, p_name: nm, p_faction: $("#botFac").value, p_level: Number($("#botLvl").value) });
+        const r = await sbRpc("wow_admin_bot_create", { p_token: this.me.token, p_name: nm, p_faction: $("#botFac").value,
+          p_level: Number($("#botLvl").value), p_king: king || null, p_alliance: $("#botAll").value || null });
         toast('"' + r.name + '" nace en la casilla ' + r.pos + ' con ' + un(r.points) + ' puntos.');
         await this.admBotsPanel();
       }catch(e){ ab.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const ag = $("#botAllGo"); if(ag) ag.onclick = async () => {
+      const al = $("#botAllAll").value;
+      ag.disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_bot_ally", { p_token: this.me.token, p_id: "", p_alliance: al });
+        toast(al ? ("Se unen " + un(r.n || 0) + " reinos." + (r.llenos ? " " + r.llenos + " no caben (máximo 5 por alianza)." : ""))
+                 : ("Salen de la alianza " + un(r.n || 0) + " reinos."));
+        await this.admBotsPanel();
+      }catch(e){ ag.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const ar = $("#botRun"); if(ar) ar.onclick = async () => {
       ar.disabled = true;
@@ -1453,6 +1478,14 @@ const Game = {
           toast("Dificultad: " + this.botLevelName(el.value) + "."); await this.admBotsPanel(); }
         catch(e){ toast(shortMsg(e), true); }
       };
+      if(el.dataset.b === "ally") el.onchange = async () => {
+        try{
+          await sbRpc("wow_admin_bot_ally", { p_token: this.me.token, p_id: el.dataset.id, p_alliance: el.value });
+          toast(el.value ? "Se une a la alianza." : "Sale de la alianza.");
+          await this.admBotsPanel();
+        }catch(e){ toast(shortMsg(e), true); await this.admBotsPanel(); }
+      };
+      if(el.dataset.b === "ren") el.onclick = () => this.admRenameBot(el.dataset.id);
       if(el.dataset.b === "on") el.onclick = async () => {
         const on = el.dataset.on !== "1";
         try{ await sbRpc("wow_admin_bot_stop", { p_token: this.me.token, p_id: el.dataset.id, p_on: on });
@@ -1465,6 +1498,23 @@ const Game = {
         catch(e){ toast(shortMsg(e), true); }
       };
     });
+  },
+  admRenameBot(id){
+    const b = (this.bots || []).find(x => x.id === id); if(!b) return;
+    modal('<h2 style="margin-top:0;color:var(--gold)">✏️ Nombre del reino</h2>' +
+      '<p class="hint">Cambia el nombre que se ve en el mapa, el ranking y el chat. Su nombre de usuario (<b>' + esc(b.id) + '</b>) no cambia: es con el que entra.</p>' +
+      '<div class="admInputs"><label>Nombre del reino<input id="botNew" type="text" maxlength="20" value="' + esc(b.name) + '"></label></div>' +
+      '<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">' +
+        '<button class="btn" id="botNewGo">Guardar</button><button class="btn sm" id="botNewBack">Volver</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    const back = $("#botNewBack"); if(back) back.onclick = () => this.renderBotsPanel();
+    const go = $("#botNewGo"); if(go) go.onclick = async () => {
+      const nn = ($("#botNew").value || "").trim();
+      if(nn.length < 2) return notice($("#admMsg"), "Escribe el nombre del reino.", "danger");
+      go.disabled = true;
+      try{ await sbRpc("wow_admin_bot_rename", { p_token: this.me.token, p_id: b.id, p_name: nn }); toast("Nombre cambiado."); await this.admBotsPanel(); }
+      catch(e){ go.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
   },
   admUser(id){ return (this.adm && this.adm.users || []).find(x => x.id === id); },
   admAction(a, id, on){
