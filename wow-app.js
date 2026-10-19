@@ -389,7 +389,7 @@ const Game = {
     if (this.me && this.me.id === "admin") this.setAdminTab(true);
     this.loop();
   },
-  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this._mktSig = null; this.mkt = null; this.stopMarchLoop(); this.stopMarchPoll(); this.stopChatPoll(); this.stopGChatPoll(); },
+  stop(){ clearInterval(this.timer); this.timer = null; this.st = null; this.rankLoaded = false; this._mktSig = null; this.mkt = null; this._mapScroll = null; this.stopMarchLoop(); this.stopMarchPoll(); this.stopChatPoll(); this.stopGChatPoll(); },
   async refresh(){
     try{
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
@@ -657,7 +657,13 @@ const Game = {
           <div class="mPinTag">${owned ? esc(a.holder_name || "?") : "Libre"}</div>
         </div>`;
     });
+    const prevWrap = document.querySelector(".mapWrap");
+    if(prevWrap) this._mapScroll = { l: prevWrap.scrollLeft, t: prevWrap.scrollTop };
     $("#tabMap").innerHTML = `
+      <div class="mapBar">
+        <button class="btn sm" id="mapCenterBtn">🎯 Mi castillo</button>
+        <span class="mapHint">Arrastra para moverte por el mundo</span>
+      </div>
       <div class="mapWrap"><div class="mapInner" id="m2root">
         <img class="mapImg" src="img/mapa.jpg?v=20261018p" alt="Mapa de Azeroth">
         ${throneHtml}
@@ -666,6 +672,7 @@ const Game = {
         <div class="armyLayer" id="armyLayer"></div>
       </div></div>
       ${this.cronicaHtml()}`;
+    const centerBtn = $("#mapCenterBtn"); if(centerBtn) centerBtn.onclick = () => this.mapCenterMe();
     $("#m2root").querySelectorAll(".mPin[data-pos]").forEach(b => {
       b.onclick = () => this.openProfile(parseInt(b.dataset.pos, 10));
     });
@@ -675,10 +682,26 @@ const Game = {
     $("#m2root").querySelectorAll(".mPin.aldea").forEach(b => {
       b.onclick = () => this.openFort(parseInt(b.dataset.ald, 10), "aldea");
     });
+    const wrap = document.querySelector(".mapWrap");
+    if(wrap && this._mapScroll){
+      wrap.scrollLeft = this._mapScroll.l; wrap.scrollTop = this._mapScroll.t;
+      this._mapScroll = { l: wrap.scrollLeft, t: wrap.scrollTop };
+    }else this.mapCenterMe();
     this.keepFx();
     this.loadMarches();
     this.startMarchLoop();
     this.startMarchPoll();
+  },
+  /* centra la vista en tu castillo (el mapa es mas ancho que la pantalla) */
+  mapCenterMe(){
+    const wrap = document.querySelector(".mapWrap"), inner = document.getElementById("m2root");
+    if(!wrap || !inner) return;
+    const me = (this.mapList || []).find(x => x.me);
+    const pc = mapNodePct(me ? mapPosNode(me.pos) : 0);
+    const l = Math.max(0, pc[0] / 100 * inner.offsetWidth - wrap.clientWidth / 2);
+    const t = Math.max(0, pc[1] / 100 * inner.offsetHeight - wrap.clientHeight / 2);
+    wrap.scrollLeft = l; wrap.scrollTop = t;
+    this._mapScroll = { l: wrap.scrollLeft, t: wrap.scrollTop };
   },
   cronicaHtml(){
     const evs = this._events || [];

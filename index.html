@@ -303,10 +303,12 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   color:var(--dim); pointer-events:none; text-shadow:0 1px 3px #000}
 
 /* ---------- mapa (imagen pergamino) ---------- */
-.mapWrap{position:relative; margin:8px 0; text-align:center; overflow:auto}
-.mapInner{position:relative; display:inline-block; border-radius:16px; overflow:hidden;
+.mapWrap{position:relative; margin:8px 0; overflow:auto; max-height:78vh; -webkit-overflow-scrolling:touch}
+.mapBar{display:flex; align-items:center; gap:10px; margin:6px 0 0}
+.mapHint{font-size:12px; color:var(--dim)}
+.mapInner{position:relative; display:block; width:200%; border-radius:16px; overflow:hidden;
   border:1px solid var(--line); box-shadow:0 16px 46px rgba(0,0,0,.6)}
-.mapImg{display:block; max-width:100%; max-height:150vh; width:auto; height:auto}
+.mapImg{display:block; width:100%; height:auto; max-width:none; max-height:none}
 .mPin{position:absolute; transform:translate(-50%,-100%); text-align:center; cursor:pointer; z-index:2}
 .mPin.empty{opacity:.5; pointer-events:none}
 .mPin .mPinCastle{font-size:24px; line-height:1; filter:drop-shadow(0 2px 2px rgba(0,0,0,.85))}
@@ -461,5 +463,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261018p"></script>
+    <script src="wow-app.js?v=20261018q"></script>
 </body></html>
