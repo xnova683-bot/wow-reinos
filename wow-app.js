@@ -1086,13 +1086,18 @@ const Game = {
   async renderAllyMine(id){
     const info = await sbRpc("wow_alliance_info", { p_token: this.me.token, p_id: id });
     this._allyInfo = info;
+    const isLeader = info.leader === this.me.name;
     let html = `<div class="allyBox">
       <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
       <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
       <div class="secTitle" style="margin-top:0">👥 Miembros (${info.members.length}/${ALLY_MAX})</div>
+      ${isLeader && info.members.length > 1 ? '<p class="hint" style="margin:0 0 6px">Eres el líder: puedes expulsar a quien no cumpla.</p>' : ''}
       <div class="members">`;
     info.members.forEach(m => {
-      html += `<div class="mem${m.me ? " me" : ""}">${m.faction === "horda" ? "⚔️" : "🛡️"} ${esc(m.name)}${m.leader ? " 👑" : ""}<span class="memPts">${un(m.points)} pts</span></div>`;
+      html += `<div class="mem${m.me ? " me" : ""}">${m.faction === "horda" ? "⚔️" : "🛡️"} ${esc(m.name)}${m.leader ? " 👑" : ""}` +
+        `<span class="memPts">${un(m.points)} pts</span>` +
+        (isLeader && !m.leader && !m.me ? `<button class="btn sm danger" data-kick="${esc(m.id)}" title="Expulsar de la alianza">🚫</button>` : "") +
+        `</div>`;
     });
     html += `</div>
       <div class="secTitle">⚔️ Guerras</div>
@@ -1105,6 +1110,7 @@ const Game = {
       <div id="allyRank" class="allyRank"></div>
     </div>`;
     $("#tabAlly").innerHTML = html;
+    $("#tabAlly").querySelectorAll("[data-kick]").forEach(b => { b.onclick = () => this.kickMember(b.dataset.kick); });
     $("#chatSend").onclick = () => this.sendChat();
     $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
@@ -1239,6 +1245,15 @@ const Game = {
     if(!confirm("¿Seguro que quieres salir de " + name + "?")) return;
     try{ await sbRpc("wow_alliance_leave", { p_token: this.me.token }); this.stopChatPoll(); await this.refresh(); await this.renderAlly(); toast("Has salido de la alianza."); }
     catch(e){ toast(shortMsg(e), true); }
+  },
+  async kickMember(id){
+    const m = ((this._allyInfo && this._allyInfo.members) || []).find(x => x.id === id);
+    if(!confirm("¿Expulsar a " + (m ? m.name : "este reino") + " de la alianza?")) return;
+    try{
+      const r = await sbRpc("wow_alliance_kick", { p_token: this.me.token, p_id: id });
+      toast((r.name || "El reino") + " ya no está en la alianza.");
+      await this.renderAllyMine(this._allyInfo.id);
+    }catch(e){ toast(shortMsg(e), true); }
   },
 
   /* ---------------- gestión (admin) ---------------- */

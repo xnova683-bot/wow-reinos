@@ -3038,6 +3038,46 @@ begin
 end $$;
 grant execute on function public.wow_alliance_join(text, text) to anon, authenticated;
 
+-- la info de la alianza incluye el id de cada miembro (para poder expulsarlos) y quien es el lider
+create or replace function public.wow_alliance_info(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; a wow_alliances; mem jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select * into a from wow_alliances where id = p_id;
+  if a.id is null then raise exception 'Esa alianza ya no existe.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'id', w.id, 'name', w.name, 'faction', w.faction, 'points', _wow_points(w.id),
+             'leader', w.id = a.leader, 'me', w.id = u.id)
+           order by (w.id = a.leader) desc, w.created), '[]') into mem
+    from wow_users w where w.alliance = a.id;
+  return jsonb_build_object('id', a.id, 'name', a.name, 'tag', a.tag, 'descr', a.descr,
+    'leader', (select name from wow_users where id = a.leader),
+    'members', mem, 'is_member', u.alliance = a.id,
+    'is_leader', (u.id = a.leader));
+end $$;
+grant execute on function public.wow_alliance_info(text, text) to anon, authenticated;
+
+-- expulsar a un miembro de la alianza (solo el lider)
+create or replace function public.wow_alliance_kick(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; a wow_alliances; t wow_users;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is null then raise exception 'No estás en ninguna alianza.'; end if;
+  select * into a from wow_alliances where id = u.alliance;
+  if a.leader is distinct from u.id then raise exception 'Solo el líder de la alianza puede expulsar miembros.'; end if;
+  if p_id = u.id then raise exception 'El líder no puede expulsarse a sí mismo.'; end if;
+  select * into t from wow_users where id = p_id;
+  if t.id is null or t.alliance is distinct from u.alliance then raise exception 'Ese reino ya no está en tu alianza.'; end if;
+  update wow_users set alliance = null where id = t.id;
+  perform _wow_event('alliance', '🚪 [' || a.tag || '] ' || t.name || ' ha sido expulsado de la alianza ' || a.name || '.');
+  return jsonb_build_object('ok', true, 'id', t.id, 'name', t.name);
+end $$;
+grant execute on function public.wow_alliance_kick(text, text) to anon, authenticated;
+
 -- ================================================================
 -- APENDICE CHAT GLOBAL: mensajes publicos de todos los jugadores
 --   (generado desde wow-chat.sql)
