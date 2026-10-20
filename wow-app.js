@@ -9,6 +9,7 @@ const $ = sel => document.querySelector(sel);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const un = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 0 });
 const fmt = n => Number(n || 0).toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dec = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 2 });
 const ALLY_MAX = 5;
 function tfmt(sec){
   sec = Math.max(0, Math.round(sec));
@@ -1513,7 +1514,6 @@ const Game = {
     const rt = this.throneRates || { gold: 100, wood: 100, ore: 100 };
     const al0 = (this.aldeaShare != null) ? Number(this.aldeaShare) : 1;
     const al = al0 > 20 ? 20 : al0;
-    const dec = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 2 });
     const alt = this.aldeaRates || { gold: 100, wood: 100, ore: 100 };
     modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Ajustes de economía</h2>' +
       '<p class="hint">La <b>comisión</b> se descuenta de lo que recibe el vendedor y se destruye. El <b>tributo</b> es el % del valor del trato que va al tesoro de cada trono con dueño (se descuenta de la comisión).</p>' +
@@ -1934,7 +1934,7 @@ Game.loadMarket = async function(){
   else html += (d.offers || []).map(o =>
       '<div class="fleet mkRow"><span class="fi">🤝</span>' +
       '<div class="fmain"><div class="ft">' + esc(o.who) + '</div>' +
-      '<div class="fd">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + ' · pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
+      '<div class="fd">da <b>' + dec(o.give_left) + '</b> ' + esc(mktName(o.give)) + ' · pide <b>' + dec(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
       '<div class="fcount"><input id="mkTk_' + o.id + '" type="number" min="0" value="' + o.give_left + '" style="width:70px"> ' +
       '<button class="btn sm" data-take="' + o.id + '">Tomar</button></div></div>'
     ).join("");
@@ -1942,8 +1942,8 @@ Game.loadMarket = async function(){
   if(!(d.mine || []).length) html += '<div class="empty">No tienes ofertas activas.</div>';
   else html += (d.mine || []).map(o =>
       '<div class="fleet mkRow"><span class="fi">📦</span>' +
-      '<div class="fmain"><div class="ft">da <b>' + un(o.give_left) + '</b> ' + esc(mktName(o.give)) + '</div>' +
-      '<div class="fd">pide <b>' + un(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
+      '<div class="fmain"><div class="ft">da <b>' + dec(o.give_left) + '</b> ' + esc(mktName(o.give)) + '</div>' +
+      '<div class="fd">pide <b>' + dec(o.want_left) + '</b> ' + esc(mktName(o.want)) + '</div></div>' +
       '<div class="fcount"><button class="btn sm danger" data-cancel="' + o.id + '">Cancelar</button></div></div>'
     ).join("");
   el.innerHTML = html;
@@ -1970,7 +1970,7 @@ Game.mktTake = async function(id){
   if(q <= 0) return toast("Cantidad inválida.", true);
   try{
     const r = await sbRpc("wow_market_take", { p_token: this.me.token, p_id: id, p_qty: q });
-    toast("🤝 Tomaste " + un(r.took) + " · pagaste " + un(r.paid) + ".");
+    toast("🤝 Tomaste " + dec(r.took) + " · pagaste " + dec(r.paid) + ".");
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
 };
@@ -2011,9 +2011,9 @@ Game.openFort = async function(node, kind){
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
         body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
-        for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + un(t.treasure[k]) + '</span></div>';
+        for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + dec(t.treasure[k]) + '</span></div>';
       }else body += '<div class="muted">Sin tesoro por ahora.</div>';
-      body += '<div class="row"><span>Tributo</span><span>' + un(r.share||1) + '% del valor del trato</span></div>';
+      body += '<div class="row"><span>Tributo</span><span>' + dec(r.share||1) + '% del valor de cada venta del mercado</span></div>';
       if(r.rates) body += '<div class="muted" style="margin-top:4px">Genera +' + un(r.rates.gold||0) + ' 💰 oro · +' + un(r.rates.wood||0) + ' 🪵 madera · +' + un(r.rates.ore||0) + ' ⛏️ mineral por hora (se acumula en el tesoro).</div>';
     }
     if(this.st && this.st.pos != null && this.st.pos >= 0){
