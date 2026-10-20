@@ -761,12 +761,15 @@ const Game = {
       const icon = m.kind === "spy" ? "🕵️"
         : m.kind === "throne_rein" ? "🛡️"
         : m.kind === "throne_claim" ? "💰"
+        : m.kind === "gift" ? "🛒"
         : back ? "🚩" : "⚔️";
       const el = document.createElement("div");
       el.className = "mArmy" + (m.mine ? " mine" : "") +
-        (m.kind === "spy" ? " spy" : (back ? " back" : ""));
+        (m.kind === "spy" ? " spy" : (m.kind === "gift" ? " gift" : (back ? " back" : "")));
       el.textContent = icon;
-      el.title = (m.attacker || "?") + " → " + (m.target || (m.kind === "spy" ? "espionaje" : "?"));
+      el.title = m.kind === "gift"
+        ? "Carruaje de recursos: " + (m.attacker || "?") + " → " + (m.target || "?")
+        : (m.attacker || "?") + " → " + (m.target || (m.kind === "spy" ? "espionaje" : "?"));
       layer.appendChild(el);
       this._marchTokens.push({ el, pts: reach, depart: m.depart, arrive: m.arrive, seed: idx * 1.7 });
     });
@@ -855,11 +858,42 @@ const Game = {
         <button class="btn sm" id="profSpy" style="align-self:center">🔍 Espiar (150 💰)</button></div>` : ""}
       ${blockMsg && !r.me ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">' + blockMsg + '</p>' : ""}
       ${sameAlly ? '<p style="text-align:center;color:var(--dim);font-size:12px;margin-top:10px">Es de tu alianza: no puedes atacarlo ni espiarlo.</p>' : ""}
+      ${(sameAlly && !r.me) ? `<div style="text-align:center;margin-top:10px"><button class="btn" id="profGift">📦 Enviar recursos</button></div>` : ""}
       ${peace && !r.me ? '<p style="text-align:center;color:var(--green);font-size:12px;margin-top:10px">🤝 Hay paz con [' + esc(r.alliance) + ']: no puedes atacarlo ni espiarlo.</p>' : ""}`);
     const ab = document.getElementById("profAtk");
     if(ab) ab.onclick = () => this.openAttack(r);
     const sb = document.getElementById("profSpy");
     if(sb) sb.onclick = () => this.openSpy(r);
+    const gb = document.getElementById("profGift");
+    if(gb) gb.onclick = () => this.openGift(r);
+  },
+  openGift(r){
+    const s = this.st || {};
+    modal(`<h2 style="margin-top:0;color:var(--gold)">📦 Enviar recursos a ${esc(r.name)}</h2>
+      <p class="hint">Envía oro, madera y mineral a tu aliado. Los recursos se descuentan al enviar y viajan en un carruaje que tarda lo mismo que una tropa.</p>
+      <div class="admInputs">
+        <label>💰 Oro <input id="giftGold" type="number" min="0" step="1" value="0"></label>
+        <label>🪵 Madera <input id="giftWood" type="number" min="0" step="1" value="0"></label>
+        <label>⛏️ Mineral <input id="giftOre" type="number" min="0" step="1" value="0"></label>
+      </div>
+      <p class="hint" style="margin-top:8px">Tienes: 💰 ${un(s.gold||0)} · 🪵 ${un(s.wood||0)} · ⛏️ ${un(s.ore||0)}</p>
+      <div style="text-align:center;margin-top:14px"><button class="btn" id="giftGo">Enviar</button></div>
+      <div id="giftMsg" class="notice" style="margin-top:8px"></div>`);
+    $("#giftGo").onclick = async () => {
+      const g = Math.floor(Number($("#giftGold").value) || 0);
+      const w = Math.floor(Number($("#giftWood").value) || 0);
+      const o = Math.floor(Number($("#giftOre").value) || 0);
+      if(g < 0 || w < 0 || o < 0) return notice($("#giftMsg"), "Las cantidades no pueden ser negativas.", "danger");
+      if(g + w + o <= 0) return notice($("#giftMsg"), "Elige cuánto quieres enviar.", "danger");
+      if(g > (s.gold||0) || w > (s.wood||0) || o > (s.ore||0)) return notice($("#giftMsg"), "No tienes tantos recursos.", "danger");
+      $("#giftGo").disabled = true;
+      try{
+        const res = await sbRpc("wow_ally_gift", { p_token: this.me.token, p_target: r.id, p_gold: g, p_wood: w, p_ore: o });
+        modalClose();
+        toast("📦 Carruaje enviado a " + r.name + ". Llegará en " + tfmt(res.travel) + ".");
+        await this.refresh(); if(this.tab === "map") this.loadMap();
+      }catch(e){ $("#giftGo").disabled = false; notice($("#giftMsg"), shortMsg(e), "danger"); }
+    };
   },
   async openSpy(r){
     if(!confirm("¿Enviar un espía a " + r.name + "?\n\nCoste: 150 de oro.\nVerás sus recursos, defensa y tropas si no te descubren (la muralla enemiga reduce el éxito).")) return;
