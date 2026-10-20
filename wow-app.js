@@ -1655,8 +1655,8 @@ const Game = {
       aa.disabled = true;
       try{
         const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: on });
-        this.botAuto = !!r.auto;
-        toast(r.auto ? "🌞 " + un(r.bots || 0) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados.");
+        this.botAuto = on;
+        toast(on ? "🌞 " + un((r && r.bots) || list.length) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados: ya no juegan ni atacan.");
         await this.admBotsPanel();
       }
       catch(e){ aa.disabled = false; toast(shortMsg(e), true); }
