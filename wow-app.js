@@ -111,7 +111,7 @@ const BLD = {
   herreria:   { e: "🛠️", n: "Herrería",        d: "Forja acero: sube el daño de tus tropas", p: "+{v}% daño de tus tropas" },
   fortaleza:  { e: "🏯", n: "Fortaleza",       d: "Muros reforzados: tus tropas aguantan más", p: "+{v}% aguante (menos bajas)" },
   mercado:    { e: "🏪", n: "Mercado",         d: "Rutas comerciales: más producción de recursos", p: "+{v}% producción de recursos" },
-  muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino" }
+  muralla:    { e: "🛡️", n: "Muralla",         d: "Protege tu reino",                 p: "Defensa de tu reino", imgH: "img/horda/muralla.jpg?v=1" }
 };
 const TRP = {
   soldado: { e: "🗡️", n: "Soldado", d: "Infantería básica", req: 1,  img: "img/soldado.jpg", imgH: "img/horda/soldado.jpg" },
