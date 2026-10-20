@@ -360,7 +360,7 @@ const Auth = {
     try{
       const salt = newSalt();
       const hash = await pbkdf2Hex(p1, salt, 100000);
-      await sbRpc("wow_register", { p_name: name, p_realm: realm, p_faction: this.fac, p_salt: salt, p_hash: hash, p_now: Date.now() });
+      await sbRpc("wow_register", { p_name: name, p_realm: realm, p_faction: this.fac, p_salt: salt, p_hash: hash });
       const r = await sbRpc("wow_login", { p_name: name, p_hash: hash });
       localStorage.setItem("wow_token", r.token);
       notice($("#rgMsg"), "");
@@ -1536,6 +1536,7 @@ const Game = {
       ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
+      '<button class="btn sm" id="admClock">🕒 Relojes raros</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
         '<input id="admFind" type="text" placeholder="Buscar reino…" value="' + esc(this.admQ || "") + '" style="flex:1;min-width:140px">' +
@@ -1547,6 +1548,7 @@ const Game = {
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
+    const cb = $("#admClock"); if(cb) cb.onclick = () => this.admClock();
     const fi = $("#admFind"); if(fi){
       fi.oninput = () => { this.admQ = fi.value; const p = fi.value.length; this.renderAdmin(); const n2 = $("#admFind"); if(n2){ n2.focus(); try{ n2.setSelectionRange(p, p); }catch(_){} } };
     }
@@ -1564,6 +1566,26 @@ const Game = {
       logBook("Panel actualizado: ahora " + (this.botAuto ? "encendidos" : "apagados"));
     }
     catch(e){ if(btn) btn.disabled = false; logBook("FALLO al cambiar:", (e && e.message) || e); toast(shortMsg(e), true); }
+  },
+  async admClock(){
+    modal('<h2 style="margin-top:0;color:var(--gold)">🕒 Relojes raros</h2>' +
+      '<p class="hint">Reinos cuyo reloj de creación o última conexión no cuadra (en el futuro, o muy antiguo). El juego no usa la hora de tu ordenador: solo sirve para revisar quién lo intentó.</p>' +
+      '<div id="admClockBox"><p class="empty">Comprobando…</p></div>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admClockClose">Cerrar</button></div>');
+    $("#admClockClose").onclick = () => modalClose();
+    const box = $("#admClockBox");
+    try{
+      const r = await sbRpc("wow_admin_timeaudit", { p_token: this.me.token });
+      const rows = (r && r.rows) || [];
+      if(!rows.length){ box.innerHTML = '<p class="empty">Todo correcto: ningún reino con la hora rara.</p>'; return; }
+      box.innerHTML = '<p class="hint">Tope de producción por refresco: <b>' + un(r.top) + ' h</b>.</p>' +
+        '<div class="admList">' + rows.map(x => {
+          const fut = Number(x.created_off_min) > 5 || Number(x.last_off_min) > 5;
+          return '<div class="admRow"><div class="admHead"><b>' + esc(x.name) + '</b> <span class="admId">(' + esc(x.id) + ')</span>' +
+            (fut ? '<span class="admTag ban">FUTURO</span>' : '<span class="admTag">REVISAR</span>') + '</div>' +
+            '<div class="admStats">creado hace ' + un(x.created_off_min) + ' min · última conexión hace ' + un(x.last_off_min) + ' min</div></div>';
+        }).join('') + '</div>';
+    }catch(e){ box.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; }
   },
   admFee(){
     const f = (this.mktFee != null) ? this.mktFee : 20;
