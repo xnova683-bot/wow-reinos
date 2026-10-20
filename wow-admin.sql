@@ -67,6 +67,7 @@ begin
       'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos,
       'active', w.active, 'is_admin', w.is_admin,
       'gold', floor(w.gold), 'wood', floor(w.wood), 'ore', floor(w.ore),
+      'cup', round(coalesce(w.cup,0), 2),
       'points', _wow_points(w.id),
       'troops', coalesce((select sum(qty) from wow_troops where owner_id = w.id),0),
       'alliance', coalesce((select tag from wow_alliances where id = w.alliance),''),
