@@ -765,8 +765,8 @@ const Game = {
         : back ? "🚩" : "⚔️";
       const el = document.createElement("div");
       el.className = "mArmy" + (m.mine ? " mine" : "") +
-        (m.kind === "spy" ? " spy" : (m.kind === "gift" ? " gift" : (back ? " back" : "")));
-      el.textContent = icon;
+        (m.kind === "spy" ? " spy" : (m.kind === "gift" ? (" gift" + (back ? " back" : "")) : (back ? " back" : "")));
+      el.textContent = m.kind === "gift" ? "" : icon;
       el.title = m.kind === "gift"
         ? "Carruaje de recursos: " + (m.attacker || "?") + " → " + (m.target || "?")
         : (m.attacker || "?") + " → " + (m.target || (m.kind === "spy" ? "espionaje" : "?"));
