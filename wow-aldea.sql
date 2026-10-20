@@ -151,10 +151,10 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   if not u.is_admin then raise exception 'No tienes permisos de administrador.'; end if;
-  if p_pct is null or p_pct < 0 or p_pct > 90 then raise exception 'El tributo debe estar entre 0 y 90.'; end if;
-  insert into wow_settings(key, val) values ('aldea_share', p_pct::text)
+  if p_pct is null or p_pct < 0.01 or p_pct > 20 then raise exception 'El tributo de aldeas debe estar entre 0,01 y 20.'; end if;
+  insert into wow_settings(key, val) values ('aldea_share', trim_scale(round(p_pct, 2))::text)
     on conflict (key) do update set val = excluded.val;
-  return jsonb_build_object('ok', true, 'share', p_pct);
+  return jsonb_build_object('ok', true, 'share', trim_scale(round(p_pct, 2)));
 end $$;
 grant execute on function public.wow_admin_setaldeashare(text, numeric) to anon, authenticated;
 

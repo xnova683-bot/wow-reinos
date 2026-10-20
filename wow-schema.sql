@@ -2708,10 +2708,10 @@ begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   if not u.is_admin then raise exception 'No tienes permisos de administrador.'; end if;
-  if p_pct is null or p_pct < 0 or p_pct > 90 then raise exception 'El tributo debe estar entre 0 y 90.'; end if;
-  insert into wow_settings(key, val) values ('aldea_share', p_pct::text)
+  if p_pct is null or p_pct < 0.01 or p_pct > 20 then raise exception 'El tributo de aldeas debe estar entre 0,01 y 20.'; end if;
+  insert into wow_settings(key, val) values ('aldea_share', trim_scale(round(p_pct, 2))::text)
     on conflict (key) do update set val = excluded.val;
-  return jsonb_build_object('ok', true, 'share', p_pct);
+  return jsonb_build_object('ok', true, 'share', trim_scale(round(p_pct, 2)));
 end $$;
 grant execute on function public.wow_admin_setaldeashare(text, numeric) to anon, authenticated;
 
@@ -5257,12 +5257,15 @@ revoke all on function public.wow_bots_tick(boolean) from public, anon, authenti
 
 -- ----------------------------------------------------------------
 -- aceptar oferta (override): el CUP de un bot va a Administracion
+-- y se sigue repartiendo el tributo a tronos y aldeas.
+-- (Esta es la version final: se aplica despues del apendice de aldeas.)
 -- ----------------------------------------------------------------
 create or replace function public.wow_market_take(p_token text, p_id bigint, p_qty numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
   u wow_users; o wow_market_offers; ms bigint;
   take numeric; want_part numeric; fee numeric; net numeric; new_left numeric;
+  share numeric; tt record;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -5306,12 +5309,19 @@ begin
   else
     perform _wow_mkt_add(o.seller, o.want_key, net);
   end if;
+  -- tributo: % del valor del trato segun el tipo de cada estructura con duenio
+  share := 0;
+  for tt in select node from wow_thrones where holder is not null order by node loop
+    share := want_part * least(_wow_node_pct(tt.node), fee) / 100.0;
+    if _wow_mkt_is_troop(o.want_key) then share := round(share); end if;
+    if share > 0 then perform _wow_throne_add(tt.node, o.want_key, share); end if;
+  end loop;
   new_left := o.give_left - take;
   if new_left <= 0.0001 then
     update wow_market_offers set give_left = 0, want_left = 0, active = false where id = o.id;
   else
     update wow_market_offers set give_left = new_left, want_left = greatest(0, o.want_left - want_part) where id = o.id;
   end if;
-  return jsonb_build_object('ok', true, 'took', take, 'paid', want_part, 'fee', fee, 'net', net);
+  return jsonb_build_object('ok', true, 'took', take, 'paid', want_part, 'fee', fee, 'net', net, 'throne_share', share);
 end $$;
 grant execute on function public.wow_market_take(text, bigint, numeric) to anon, authenticated;

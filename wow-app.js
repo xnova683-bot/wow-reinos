@@ -1511,7 +1511,9 @@ const Game = {
     const f = (this.mktFee != null) ? this.mktFee : 20;
     const s = (this.throneShare != null) ? this.throneShare : 1;
     const rt = this.throneRates || { gold: 100, wood: 100, ore: 100 };
-    const al = (this.aldeaShare != null) ? this.aldeaShare : 1;
+    const al0 = (this.aldeaShare != null) ? Number(this.aldeaShare) : 1;
+    const al = al0 > 20 ? 20 : al0;
+    const dec = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 2 });
     const alt = this.aldeaRates || { gold: 100, wood: 100, ore: 100 };
     modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Ajustes de economía</h2>' +
       '<p class="hint">La <b>comisión</b> se descuenta de lo que recibe el vendedor y se destruye. El <b>tributo</b> es el % del valor del trato que va al tesoro de cada trono con dueño (se descuenta de la comisión).</p>' +
@@ -1522,7 +1524,8 @@ const Game = {
       '<label>Madera /h<input id="admThrW" type="number" min="0" max="100000" value="' + un(rt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admThrO" type="number" min="0" max="100000" value="' + un(rt.ore) + '"></label></div>' +
       '<p class="hint" style="margin-top:12px">Las <b>aldeas</b> son poblados neutrales conquistables que se pintan en el mapa. Su tributo y producción son independientes de los tronos.</p>' +
-      '<div class="admInputs"><label>Tributo aldeas (%)<input id="admAldIn" type="number" min="0" max="90" value="' + al + '"></label></div>' +
+      '<div class="admInputs"><label>Tributo aldeas (%)<input id="admAldIn" type="number" min="0.01" max="20" step="0.01" value="' + al + '"></label></div>' +
+      '<p class="hint" style="margin-top:4px">Admite decimales: mínimo <b>0,01 %</b>, máximo <b>20 %</b>. Se cobra <b>min(tributo, comisión)</b>: con la comisión actual (<b>' + dec(f) + ' %</b>) el tributo efectivo es como mucho <b>' + dec(Math.min(Number(al), Number(f))) + ' %</b>.' + (al0 > 20 ? ' <b style="color:var(--bad)">Había guardado ' + dec(al0) + ' %: se recorta a 20 %.</b>' : '') + '</p>' +
       '<p class="hint" style="margin-top:8px">Producción de recursos de cada aldea con dueño (por hora, se acumula en el tesoro).</p>' +
       '<div class="admInputs"><label>Oro /h<input id="admAldG" type="number" min="0" max="100000" value="' + un(alt.gold) + '"></label>' +
       '<label>Madera /h<input id="admAldW" type="number" min="0" max="100000" value="' + un(alt.wood) + '"></label>' +
@@ -1548,7 +1551,7 @@ const Game = {
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo de tronos debe estar entre 0 y 90.", "danger");
       if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción de tronos debe ser 0 o mayor.", "danger");
-      if(!(av >= 0 && av <= 90)) return notice($("#admMsg"), "El tributo de aldeas debe estar entre 0 y 90.", "danger");
+      if(!(av >= 0.01 && av <= 20)) return notice($("#admMsg"), "El tributo de aldeas debe estar entre 0,01 y 20.", "danger");
       if(!(ag >= 0 && aw >= 0 && ao >= 0)) return notice($("#admMsg"), "La producción de aldeas debe ser 0 o mayor.", "danger");
       if(!(pr >= 0 && pr <= 1000000)) return notice($("#admMsg"), "La protección debe estar entre 0 y 1.000.000 puntos.", "danger");
       if(!(onm >= 1 && onm <= 60)) return notice($("#admMsg"), "El tiempo en línea debe estar entre 1 y 60 minutos.", "danger");
