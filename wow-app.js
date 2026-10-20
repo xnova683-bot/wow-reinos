@@ -406,6 +406,7 @@ const Game = {
       if(this.tab === "map") this.loadMap();
       if(this.tab === "mil") this.loadMil();
       if(this.tab === "market" && this.loadMarket) this.loadMarket();
+      if(this.tab === "admin") this.loadAdmin(true);
     }catch(e){ toast(shortMsg(e), true); }
   },
   loop(){
@@ -1454,9 +1455,9 @@ const Game = {
       const t = document.querySelector('.gameTabs [data-tab="bld"]'); if(t) t.click();
     }
   },
-  async loadAdmin(){
+  async loadAdmin(quiet){
     const el = $("#tabAdmin"); if(!el) return;
-    el.innerHTML = '<p class="empty">Cargando reinos…</p>';
+    if(!quiet) el.innerHTML = '<p class="empty">Cargando reinos…</p>';
     try{
       this.adm = await sbRpc("wow_admin_list", { p_token: this.me.token });
       try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
@@ -1466,7 +1467,7 @@ const Game = {
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
       try{ const bl = await sbRpc("wow_admin_bot_list", { p_token: this.me.token }); this.bots = (bl && bl.bots) || []; this.botAuto = !!(bl && bl.auto); this.botNow = bl && bl.now; this.botProtect = bl && bl.protect; }catch(_){ this.bots = this.bots || []; }
     }
-    catch(e){ this.adm = null; el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
+    catch(e){ this.adm = null; if(!quiet) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
     this.renderAdmin();
   },
   renderAdmin(){
@@ -1475,19 +1476,30 @@ const Game = {
     if(!d){ el.innerHTML = '<p class="empty">Sin datos.</p>'; return; }
     const users = d.users || [];
     const autos = this.bots || [];
-    const rows = users.map(u => {
+    const om = Number(this.onlineMin != null ? this.onlineMin : 5) * 60000;
+    const nowMs = Number(d.now) || Date.now();
+    const onl = u => (nowMs - Number(u.last || 0)) < om;
+    const allRows = users.map(u => ({ u: u, on: onl(u) }));
+    const cntOn = allRows.filter(x => x.on).length;
+    const flt = this.admFlt || "all";
+    const q = (this.admQ || "").trim().toLowerCase();
+    const view = allRows.filter(x => flt === "all" ? true : (flt === "on" ? x.on : !x.on))
+      .filter(x => !q || (x.u.name || "").toLowerCase().indexOf(q) >= 0);
+    const rows = view.map(x => {
+      const u = x.u;
       const self = u.id === d.me;
       const isAuto = autos.some(b => b.id === u.id);
       return '<div class="admRow' + (u.active ? "" : " banned") + '">' +
-        '<div class="admHead"><b>' + esc(u.name) + '</b> <span class="admId">(' + esc(u.id) + ')</span>' +
+        '<div class="admHead"><span class="' + (x.on ? "dotOn" : "dotOff") + '" title="' + (x.on ? "en línea" : "ausente") + '"></span><b>' + esc(u.name) + '</b> <span class="admId">(' + esc(u.id) + ')</span>' +
           (u.is_admin ? '<span class="admTag">ADMIN</span>' : '') +
           (u.active ? '' : '<span class="admTag ban">BANEADO</span>') +
           (isAuto ? '<span class="admTag" title="reino que juega solo">🤖 auto</span>' : '') +
           '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
-        '<div class="admStats">🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
+        '<div class="admStats"><span class="' + (x.on ? "admOn" : "admOff") + '">' + (x.on ? "🟢 En línea" : "⚫ No en línea") + '</span> · 🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
           (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + (u.points < prot ? ' · 🔰 protegido' : '') + '</div>' +
         '<div class="admActs">' +
           '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
+          '<button class="btn sm" data-a="bld" data-id="' + esc(u.id) + '">🏗️ Edificios</button>' +
           '<button class="btn sm" data-a="trp" data-id="' + esc(u.id) + '">⚔️ Tropas</button>' +
           '<button class="btn sm" data-a="pw" data-id="' + esc(u.id) + '">🔑 Clave</button>' +
           (self ? '' :
@@ -1498,14 +1510,24 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · 🟢 ' + un((this.st && this.st.online) || 0) + ' en línea (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · ' + hora(d.now) + '</span>' +
+      ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
-      '<div class="admList">' + rows + '</div>';
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<input id="admFind" type="text" placeholder="Buscar reino…" value="' + esc(this.admQ || "") + '" style="flex:1;min-width:140px">' +
+        '<button class="btn sm' + (flt === "all" ? " on" : "") + '" data-flt="all">Todos (' + users.length + ')</button>' +
+        '<button class="btn sm' + (flt === "on" ? " on" : "") + '" data-flt="on">🟢 En línea (' + cntOn + ')</button>' +
+        '<button class="btn sm' + (flt === "off" ? " on" : "") + '" data-flt="off">⚫ Ausentes (' + (users.length - cntOn) + ')</button>' +
+      '</div>' +
+      '<div class="admList">' + (rows || '<p class="empty">Ningún reino coincide.</p>') + '</div>';
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
+    const fi = $("#admFind"); if(fi){
+      fi.oninput = () => { this.admQ = fi.value; const p = fi.value.length; this.renderAdmin(); const n2 = $("#admFind"); if(n2){ n2.focus(); try{ n2.setSelectionRange(p, p); }catch(_){} } };
+    }
+    el.querySelectorAll("button[data-flt]").forEach(b => b.onclick = () => { this.admFlt = b.dataset.flt; this.renderAdmin(); });
     el.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => this.admAction(b.dataset.a, b.dataset.id, b.dataset.on));
   },
   async botToggle(on, btn){
@@ -1778,14 +1800,64 @@ const Game = {
     };
   },
   admUser(id){ return (this.adm && this.adm.users || []).find(x => x.id === id); },
+  bldName(k){ const b = BLD[k]; return (b && (b.e + " " + b.n)) || k; },
   admAction(a, id, on){
     const u = this.admUser(id); if(!u) return;
     if(a === "res") return this.admRes(u);
+    if(a === "bld") return this.admBlds(u);
     if(a === "trp") return this.admTrp(u);
     if(a === "pw") return this.admPw(u);
     if(a === "adm") return this.admSetAdmin(u);
     if(a === "ban") return this.admBan(u, on === "1");
     if(a === "del") return this.admDel(u);
+  },
+  admBlds(u){
+    modal('<h2 style="margin-top:0;color:var(--gold)">🏗️ Edificios · ' + esc(u.name) + '</h2>' +
+      '<p class="hint">Sube o baja el nivel de cada edificio (0 a 20). A 0 se quita; al subirlo desde 0 se crea. Las tropas no cambian.</p>' +
+      '<div id="admBldList" class="admList"><p class="empty">Cargando…</p></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
+      '<div style="text-align:center;margin-top:12px"><button class="btn" id="admBldClose">Cerrar</button></div>');
+    $("#admBldClose").onclick = () => modalClose();
+    this.admBldsRender(u);
+  },
+  admBldsRender(u){
+    const box = $("#admBldList"); if(!box) return;
+    box.innerHTML = '<p class="empty">Cargando…</p>';
+    sbRpc("wow_admin_blds", { p_token: this.me.token, p_id: u.id }).then(r => {
+      const list = (r && r.blds) || [];
+      const b = $("#admBldList"); if(!b) return;
+      b.innerHTML = list.map(x => {
+        const lv = un(x.level), busy = Number(x.finish||0) > Number((r && r.now) || Date.now());
+        return '<div class="admRow"><div class="admHead"><b>' + esc(this.bldName(x.key)) + '</b>' +
+          (busy ? ' <span class="admTag">⏳ en obra → ' + lv + '</span>' : ' <span class="admId">nivel ' + lv + '</span>') + '</div>' +
+          '<div class="admActs">' +
+            '<button class="btn sm" data-b="minus" data-k="' + esc(x.key) + '">−1</button>' +
+            '<button class="btn sm" data-b="plus" data-k="' + esc(x.key) + '">+1</button>' +
+            '<button class="btn sm" data-b="zero" data-k="' + esc(x.key) + '">A 0</button>' +
+            '<button class="btn sm" data-b="max" data-k="' + esc(x.key) + '">A 20</button>' +
+          '</div></div>';
+      }).join("");
+      b.querySelectorAll("button[data-b]").forEach(bt => bt.onclick = () => this.admBldSet(u, bt.dataset.k, bt.dataset.b));
+    }).catch(e => { const b = $("#admBldList"); if(b) b.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; });
+  },
+  async admBldSet(u, key, act){
+    const box = $("#admBldList"), msg = $("#admMsg");
+    let lv;
+    try{ const r = await sbRpc("wow_admin_blds", { p_token: this.me.token, p_id: u.id });
+      lv = (((r && r.blds) || []).find(x => x.key === key) || {}).level || 0; }
+    catch(e){ notice(msg, shortMsg(e), "danger"); return; }
+    if(act === "minus") lv = Number(lv) - 1;
+    else if(act === "plus") lv = Number(lv) + 1;
+    else if(act === "zero") lv = 0;
+    else if(act === "max") lv = 20;
+    lv = Math.max(0, Math.min(20, Number(lv) || 0));
+    if(!confirm(this.bldName(key) + " de " + u.name + " → nivel " + lv + "?")) return;
+    if(box) box.querySelectorAll("button").forEach(b => b.disabled = true);
+    try{
+      const r = await sbRpc("wow_admin_setbld", { p_token: this.me.token, p_id: u.id, p_key: key, p_level: lv });
+      notice(msg, this.bldName(key) + " → nivel " + un(r && r.level) + ".", "ok");
+      this.admBldsRender(u); this.loadAdmin(true);
+    }catch(e){ if(box) box.querySelectorAll("button").forEach(b => b.disabled = false); notice(msg, shortMsg(e), "danger"); }
   },
   admRes(u){
     modal('<h2 style="margin-top:0;color:var(--gold)">💰 Recursos · ' + esc(u.name) + '</h2>' +

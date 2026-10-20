@@ -288,3 +288,43 @@ begin
   return jsonb_build_object('ok', true, 'travel', travel, 'cost', cost, 'target', t.name);
 end $$;
 grant execute on function public.wow_spy(text, text) to anon, authenticated;
+
+
+-- ---- edificios de un reino (solo admin): leer y cambiar niveles ----
+create or replace function public.wow_admin_blds(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; arr jsonb := '[]'::jsonb; k text; lv integer; fms bigint;
+begin
+  a := _wow_admin(p_token);
+  if not exists(select 1 from wow_users where id = p_id) then raise exception 'Ese reino ya no existe.'; end if;
+  foreach k in array array['mina','aserradero','tesoreria','almacen','cuartel','herreria','fortaleza','mercado','muralla']
+  loop
+    lv := 0; fms := 0;
+    select level, finish_ms into lv, fms from wow_buildings where owner_id = p_id and bkey = k;
+    arr := arr || jsonb_build_object('key', k, 'level', coalesce(lv,0), 'finish', coalesce(fms,0));
+  end loop;
+  return jsonb_build_object('ok', true, 'id', p_id, 'blds', arr,
+    'now', (extract(epoch from now())*1000)::bigint);
+end $$;
+grant execute on function public.wow_admin_blds(text, text) to anon, authenticated;
+
+create or replace function public.wow_admin_setbld(p_token text, p_id text, p_key text, p_level integer)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; lvl integer;
+begin
+  a := _wow_admin(p_token);
+  if p_key not in ('mina','aserradero','tesoreria','almacen','cuartel','herreria','fortaleza','mercado','muralla') then
+    raise exception 'Edificio no válido.'; end if;
+  if p_level is null or p_level < 0 or p_level > 20 then
+    raise exception 'El nivel debe estar entre 0 y 20.'; end if;
+  if not exists(select 1 from wow_users where id = p_id) then raise exception 'Ese reino ya no existe.'; end if;
+  if p_level = 0 then
+    delete from wow_buildings where owner_id = p_id and bkey = p_key;
+    return jsonb_build_object('ok', true, 'key', p_key, 'level', 0);
+  end if;
+  select coalesce(max(level),0) into lvl from wow_buildings where owner_id = p_id and bkey = p_key;
+  insert into wow_buildings(owner_id, bkey, level, finish_ms) values (p_id, p_key, p_level, 0)
+    on conflict (owner_id, bkey) do update set level = excluded.level, finish_ms = 0;
+  return jsonb_build_object('ok', true, 'key', p_key, 'level', p_level, 'was', lvl);
+end $$;
+grant execute on function public.wow_admin_setbld(text, text, text, integer) to anon, authenticated;
