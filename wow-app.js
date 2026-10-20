@@ -305,7 +305,6 @@ const Auth = {
         $("#tabChat").classList.toggle("hidden", Game.tab !== "chat");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
         $("#tabMarket").classList.toggle("hidden", Game.tab !== "market");
-        $("#tabTavern").classList.toggle("hidden", Game.tab !== "tavern");
         $("#tabAdmin").classList.toggle("hidden", Game.tab !== "admin");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
@@ -315,7 +314,6 @@ const Auth = {
         if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
         if(Game.tab === "chat") Game.renderGChat(); else Game.stopGChatPoll();
         if(Game.tab === "market") Game.loadMarket && Game.loadMarket();
-        if(Game.tab === "tavern") Game.loadTavern && Game.loadTavern();
         if(Game.tab === "admin") Game.loadAdmin();
       };
     });
@@ -431,7 +429,6 @@ const Game = {
       if(this.tab === "map") this.loadMap();
       if(this.tab === "mil") this.loadMil();
       if(this.tab === "market" && this.loadMarket) this.loadMarket();
-      if(this.tab === "tavern" && this.loadTavern) this.loadTavern();
       if(this.tab === "admin") this.loadAdmin(true);
     }catch(e){ toast(shortMsg(e), true); }
   },
@@ -2184,13 +2181,6 @@ Game.mktTake = async function(id){
     toast("🤝 Tomaste " + dec(r.took) + " · pagaste " + dec(r.paid) + ".");
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
-};
-Game.loadTavern = async function(){
-  const el = $("#tabTavern"); if(!el) return;
-  el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🍺 Taberna de Azeroth</h2>' +
-    '<p class="hint">Muy pronto habrá juegos aquí. Estamos preparando la mesa… vuelve en un rato.</p>' +
-    '<div class="empty" style="font-size:42px">🍺🎲🃏</div>' +
-    '<p class="hint" style="text-align:center">Próximamente…</p>';
 };
 Game.thrEvent = function(h, kind){
   const who = esc(h.actor_name || "?");
