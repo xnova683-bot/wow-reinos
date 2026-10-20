@@ -2011,7 +2011,7 @@ Game.openFort = async function(node, kind){
       body += '<div class="row"><span>Guarnición</span><span>' + un(t.garrison||0) + ' tropas</span></div>';
       if(t.treasure && Object.keys(t.treasure).length){
         body += '<div class="muted" style="margin-top:6px">Tesoro acumulado</div>';
-        for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + dec(t.treasure[k]) + '</span></div>';
+        for(let k in t.treasure) body += '<div class="row"><span>' + mktName(k) + '</span><span>' + dec(t.treasure[k]) + (k === "cup" ? ' <span class="muted">(tributo del mercado)</span>' : '') + '</span></div>';
       }else body += '<div class="muted">Sin tesoro por ahora.</div>';
       body += '<div class="row"><span>Tributo</span><span>' + dec(r.share||1) + '% del valor de cada venta del mercado</span></div>';
       if(r.rates) body += '<div class="muted" style="margin-top:4px">Genera +' + un(r.rates.gold||0) + ' 💰 oro · +' + un(r.rates.wood||0) + ' 🪵 madera · +' + un(r.rates.ore||0) + ' ⛏️ mineral por hora (se acumula en el tesoro).</div>';

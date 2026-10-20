@@ -347,3 +347,44 @@ begin
   return arr;
 end $$;
 revoke all on function public._wow_fort_info(text, text) from public, anon, authenticated;
+
+-- ================================================================
+-- Tesoro: no perder los centimos de CUP del tributo del mercado
+-- ================================================================
+
+create or replace function public._wow_node_tix(p_kind text)
+returns integer language sql immutable as $$
+  select case when p_kind = 'cup' then 4 else 2 end
+$$;
+revoke all on function public._wow_node_tix(text) from public, anon, authenticated;
+
+do $do$
+begin
+  if exists(select 1 from wow_throne_treasure where key <> 'cup' and qty <> round(qty, 2)) then
+    raise exception 'Abortado: hay oro/madera/mineral con mas de 2 decimales; avisar antes de seguir.';
+  end if;
+  if exists(select 1 from wow_throne_treasure where key = 'cup' and qty <> round(qty, 6)) then
+    raise exception 'Abortado: hay CUP con mas de 6 decimales; avisar antes de seguir.';
+  end if;
+end $do$;
+
+alter table public.wow_throne_treasure alter column qty type numeric(20,4);
+
+do $do$
+begin
+  if exists(select 1 from wow_throne_treasure where key <> 'cup' and qty <> round(qty, 2)) then
+    raise exception 'Alteracion inesperada del tesoro; rollback.';
+  end if;
+end $do$;
+
+create or replace function public._wow_throne_add(p_node integer, p_key text, p_qty numeric)
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare q numeric;
+begin
+  if coalesce(p_qty,0) <= 0 then return; end if;
+  q := round(p_qty, _wow_node_tix(p_key));
+  if q <= 0 then return; end if;
+  insert into wow_throne_treasure(node, key, qty) values (p_node, p_key, q)
+    on conflict (node, key) do update set qty = wow_throne_treasure.qty + excluded.qty;
+end $$;
+revoke all on function public._wow_throne_add(integer, text, numeric) from public, anon, authenticated;
