@@ -1494,7 +1494,7 @@ const Game = {
       try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
       try{ const pp = await sbRpc("wow_prod_info", {}); this.prodMult = pp && pp.mult; }catch(_){ this.prodMult = this.prodMult; }
-      this.prodMult = (d && d.prod_mult != null) ? d.prod_mult : this.prodMult;
+      this.prodMult = (this.adm && this.adm.prod_mult != null) ? this.adm.prod_mult : this.prodMult;
       try{ const bl = await sbRpc("wow_admin_bot_list", { p_token: this.me.token }); this.bots = (bl && bl.bots) || []; this.botAuto = !!(bl && bl.auto); this.botNow = bl && bl.now; this.botProtect = bl && bl.protect; }catch(_){ this.bots = this.bots || []; }
     }
     catch(e){ this.adm = null; if(!quiet) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
