@@ -449,6 +449,11 @@ const Game = {
     $("#rOre").textContent  = fmt(o);  $("#rOreH").textContent  = "+" + un(s.rate.ore) + "/h";
     $("#rCup").textContent = fmt(s.cup||0);  $("#rCupH").textContent = "+" + un(s.rate.cup||0) + "/h";
     $("#rCap").textContent  = un(s.capacity) + " máx.";
+    const pm = Number(s.prod_mult != null ? s.prod_mult : 1);
+    const pn = $("#prodNote");
+    if(pn) pn.innerHTML = (pm !== 1)
+      ? '<span class="prodBadge" title="La producción de recursos de tu reino está ajustada por el administrador">⚙️ Producción ×' + dec(pm) + '</span>'
+      : '';
     const box = $("#queueBox");
     const qs = (s.queues && s.queues.length) ? s.queues : (s.queue ? [s.queue] : []);
     const active = qs.filter(q => q && q.finish);
@@ -1488,6 +1493,8 @@ const Game = {
       try{ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this.aldeaShare = a && a.share; this.aldeaRates = (a && a.rates) || this.aldeaRates; }catch(_){ this.aldeaShare = this.aldeaShare; }
       try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
+      try{ const pp = await sbRpc("wow_prod_info", {}); this.prodMult = pp && pp.mult; }catch(_){ this.prodMult = this.prodMult; }
+      this.prodMult = (d && d.prod_mult != null) ? d.prod_mult : this.prodMult;
       try{ const bl = await sbRpc("wow_admin_bot_list", { p_token: this.me.token }); this.bots = (bl && bl.bots) || []; this.botAuto = !!(bl && bl.auto); this.botNow = bl && bl.now; this.botProtect = bl && bl.protect; }catch(_){ this.bots = this.bots || []; }
     }
     catch(e){ this.adm = null; if(!quiet) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
@@ -1519,11 +1526,13 @@ const Game = {
           (isAuto ? '<span class="admTag" title="reino que juega solo">🤖 auto</span>' : '') +
           '<span class="admFac">' + (u.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza") + '</span></div>' +
         '<div class="admStats"><span class="' + (x.on ? "admOn" : "admOff") + '">' + (x.on ? "🟢 En línea" : "⚫ No en línea") + '</span> · 🏆 ' + un(u.points) + ' · ⚔️ ' + un(u.troops) + ' tropas · 🪙 ' + un(u.gold) + ' · 🪵 ' + un(u.wood) + ' · ⛏️ ' + un(u.ore) + ' · 🧿 ' + un(u.cup||0) +
-          (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + (u.points < prot ? ' · 🔰 protegido' : '') + '</div>' +
-        '<div class="admActs">' +
-          '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
-          '<button class="btn sm" data-a="bld" data-id="' + esc(u.id) + '">🏗️ Edificios</button>' +
-          '<button class="btn sm" data-a="trp" data-id="' + esc(u.id) + '">⚔️ Tropas</button>' +
+           (u.alliance ? ' · [' + esc(u.alliance) + ']' : '') + (u.points < prot ? ' · 🔰 protegido' : '') +
+           (Number(u.prod_mult) !== 1 ? ' · <span class="admTag ban" title="producción alterada">⚙️ producción ×' + dec(u.prod_mult) + '</span>' : '') + '</div>' +
+         '<div class="admActs">' +
+           '<button class="btn sm" data-a="res" data-id="' + esc(u.id) + '">💰 Recursos</button>' +
+           '<button class="btn sm" data-a="bld" data-id="' + esc(u.id) + '">🏗️ Edificios</button>' +
+           '<button class="btn sm" data-a="trp" data-id="' + esc(u.id) + '">⚔️ Tropas</button>' +
+           '<button class="btn sm" data-a="prod" data-id="' + esc(u.id) + '">⚙️ Producción</button>' +
           '<button class="btn sm" data-a="pw" data-id="' + esc(u.id) + '">🔑 Clave</button>' +
           (self ? '' :
             '<button class="btn sm" data-a="adm" data-id="' + esc(u.id) + '">' + (u.is_admin ? "✋ Quitar admin" : "🛡️ Dar admin") + '</button>' +
@@ -1535,6 +1544,7 @@ const Game = {
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
       ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
+      '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
       '<button class="btn sm" id="admClock">🕒 Relojes raros</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
@@ -1547,6 +1557,7 @@ const Game = {
       '<div class="admList">' + (rows || '<p class="empty">Ningún reino coincide.</p>') + '</div>';
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
+    const pb = $("#admProd"); if(pb) pb.onclick = () => this.admProd();
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
     const cb = $("#admClock"); if(cb) cb.onclick = () => this.admClock();
     const fi = $("#admFind"); if(fi){
@@ -1648,6 +1659,43 @@ const Game = {
         this.onlineMin = onm;
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admProd(){
+    const g = (this.prodMult != null) ? Number(this.prodMult) : 1;
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Producción de recursos</h2>' +
+      '<p class="hint">Cuánto producen los reinos respecto a lo normal. <b>1</b> = normal, <b>0,5</b> = la mitad, <b>2</b> = el doble, <b>0</b> = nada. Afecta a todos los reinos (jugadores y bots). No cambia almacenes, costes ni tiempos.</p>' +
+      '<div class="admInputs"><label>Multiplicador global (0 a 10)<input id="admProdIn" type="number" min="0" max="10" step="0.05" value="' + dec(g) + '"></label></div>' +
+      '<p class="hint" style="margin-top:8px">Cada reino puede tener además su propio ajuste desde su fila (botón ⚙️ Producción). El ritmo final es <b>global × reino</b>.</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admProdGo">Guardar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admProdGo").onclick = async () => {
+      const v = Number($("#admProdIn").value);
+      if(!(v >= 0 && v <= 10)) return notice($("#admMsg"), "El multiplicador debe estar entre 0 y 10.", "danger");
+      $("#admProdGo").disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_setprod", { p_token: this.me.token, p_mult: v });
+        this.prodMult = (r && r.prod_mult != null) ? r.prod_mult : v;
+        modalClose(); toast("Producción global ×" + dec(this.prodMult) + "."); this.loadAdmin();
+      }catch(e){ $("#admProdGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admProdUser(u){
+    const g = (this.prodMult != null) ? Number(this.prodMult) : 1;
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Producción · ' + esc(u.name) + '</h2>' +
+      '<p class="hint">Ajuste solo para este reino. <b>1</b> = normal, <b>0,5</b> = la mitad, <b>2</b> = el doble, <b>0</b> = nada.</p>' +
+      '<div class="admInputs"><label>Multiplicador del reino (0 a 10)<input id="admProdUIn" type="number" min="0" max="10" step="0.05" value="' + dec(Number(u.prod_mult)||1) + '"></label></div>' +
+      '<p class="hint" style="margin-top:8px">Su producción real será <b>global ×' + dec(g) + '</b> × este valor = <b>×' + dec(g * (Number(u.prod_mult)||1)) + '</b> ahora mismo.</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="admProdUGo">Guardar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#admProdUGo").onclick = async () => {
+      const v = Number($("#admProdUIn").value);
+      if(!(v >= 0 && v <= 10)) return notice($("#admMsg"), "El multiplicador debe estar entre 0 y 10.", "danger");
+      $("#admProdUGo").disabled = true;
+      try{
+        await sbRpc("wow_admin_setproduser", { p_token: this.me.token, p_id: u.id, p_mult: v });
+        modalClose(); toast("Producción de " + u.name + " ×" + dec(v) + "."); this.loadAdmin();
+      }catch(e){ $("#admProdUGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
   },
   /* ----- reinos automáticos: juegan solos, como cualquier otro reino ----- */
@@ -1856,6 +1904,7 @@ const Game = {
     if(a === "res") return this.admRes(u);
     if(a === "bld") return this.admBlds(u);
     if(a === "trp") return this.admTrp(u);
+    if(a === "prod") return this.admProdUser(u);
     if(a === "pw") return this.admPw(u);
     if(a === "adm") return this.admSetAdmin(u);
     if(a === "ban") return this.admBan(u, on === "1");

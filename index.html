@@ -69,6 +69,7 @@ input:focus{outline:none; border-color:var(--gold2)}
 .pts b{color:var(--gold)}
 .online{color:#7fe08a; font-size:13px; white-space:nowrap}
 .resBar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
+.prodBadge{display:inline-flex; align-items:center; padding:4px 10px; border-radius:8px; background:#2a1f08; border:1px solid var(--gold, #c9a227); color:var(--gold, #c9a227); font-size:12px; font-weight:bold}
 .res{flex:1; min-width:120px; background:linear-gradient(rgba(36,26,16,.62),rgba(26,18,9,.62)); backdrop-filter:blur(3px); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
 .ri{font-size:19px}
 .rv{font-size:16px; font-weight:bold; color:var(--gold); font-variant-numeric:tabular-nums}
@@ -444,6 +445,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <div class="res"><span class="ri">⛏️</span><span class="rv" id="rOre">0</span><span class="rh" id="rOreH"></span></div>
     <div class="res"><span class="ri">🧿</span><span class="rv" id="rCup">0</span><span class="rh" id="rCupH"></span></div>
     <div class="res cap"><span class="ri">📦</span><span class="rv" id="rCap">0</span></div>
+    <span id="prodNote"></span>
   </div>
 
   <div id="queueBox" class="queueBox hidden"></div>
@@ -504,5 +506,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <pre id="logPre"></pre>
 </div>
 
-    <script src="wow-app.js?v=20261019x"></script>
+    <script src="wow-app.js?v=20261019y"></script>
 </body></html>
