@@ -26,11 +26,11 @@ begin
   ms := (extract(epoch from now())*1000)::bigint;
   if on_ then
     -- vuelven a jugar ya y se ven en linea
-    update wow_bots set active = true, next_ms = 0;
+    update wow_bots set active = true, next_ms = 0 where active is distinct from true or next_ms is distinct from 0;
     update wow_users set last_ms = ms where id in (select user_id from wow_bots);
   else
     -- dejan de jugar y salen del contador en linea ya mismo
-    update wow_bots set active = false;
+    update wow_bots set active = false where active is distinct from false;
     update wow_users set last_ms = 0 where id in (select user_id from wow_bots);
   end if;
   select count(*) into n from wow_bots;
