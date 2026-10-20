@@ -247,6 +247,10 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 /* ---------- modal ---------- */
 .modalWrap{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; padding:18px; z-index:60}
 .modalBox{background:linear-gradient(#211709,#170f08); border:2px solid var(--gold2); border-radius:12px; padding:20px; width:100%; max-width:400px; max-height:88vh; overflow-y:auto}
+.logBox{position:fixed; left:8px; bottom:8px; z-index:70; max-width:min(92vw,420px); background:#0d0a06; border:1px solid var(--bad); border-radius:8px; font:12px/1.45 monospace; color:#ffb4b4; max-height:38vh; overflow:auto; box-shadow:0 4px 14px rgba(0,0,0,.6)}
+.logBox .logHead{display:flex; align-items:center; gap:8px; justify-content:space-between; padding:5px 8px; background:#231010; position:sticky; top:0; color:#ffd7d7; font-weight:bold}
+.logBox .logHead button{background:none; border:0; color:#ffd7d7; cursor:pointer; font-size:14px; padding:0 2px}
+.logBox pre{margin:0; padding:6px 8px; white-space:pre-wrap; word-break:break-word}
 .profRow{display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #2a1e12; font-size:14px}
 .profRow .k{color:var(--dim)}
 .profRow .v{color:var(--gold)}
@@ -495,5 +499,10 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="modalBox" id="modalBox"></div>
 </div>
 
-    <script src="wow-app.js?v=20261019s"></script>
+<div id="logBox" class="logBox hidden">
+  <div class="logHead"><span>🐞 Diagnóstico (pantalla)</span><button id="logClear" type="button">borrar</button><button id="logHide" type="button">✕</button></div>
+  <pre id="logPre"></pre>
+</div>
+
+    <script src="wow-app.js?v=20261019t"></script>
 </body></html>

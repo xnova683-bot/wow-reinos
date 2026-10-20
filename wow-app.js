@@ -72,6 +72,29 @@ function modal(html){
   const btn = box.querySelector("#modalClose"); if(btn) btn.onclick = modalClose;
   m.onclick = e => { if(e.target === m) modalClose(); };
 }
+const _diagPre = [];
+function logBook(){
+  const parts = [];
+  for(let i = 0; i < arguments.length; i++){
+    const a = arguments[i];
+    try{ parts.push(typeof a === "string" ? a : JSON.stringify(a)); }catch(_){ parts.push(String(a)); }
+  }
+  const line = new Date().toLocaleTimeString("es") + "  " + parts.join(" ");
+  try{ console.log("[wow]", ...parts); }catch(_){}
+  try{
+    _diagPre.push(line); if(_diagPre.length > 24) _diagPre.shift();
+    const box = document.getElementById("logBox"), pre = document.getElementById("logPre");
+    if(box && pre){ pre.textContent = _diagPre.join("\n"); box.classList.remove("hidden"); }
+  }catch(_){}
+}
+function logBind(){
+  try{
+    const h = document.getElementById("logHide"); if(h) h.onclick = () => document.getElementById("logBox").classList.add("hidden");
+    const c = document.getElementById("logClear"); if(c) c.onclick = () => { _diagPre.length = 0; const p = document.getElementById("logPre"); if(p) p.textContent = ""; };
+  }catch(_){}
+  window.addEventListener("error", e => logBook("ERROR", (e && e.message) || "?"));
+  window.addEventListener("unhandledrejection", e => logBook("PROMESA RECHAZADA", (e && e.reason && (e.reason.message || e.reason)) || "?"));
+}
 function showScreen(id){
   ["screenPortal", "screenGame", "screenAcct"].forEach(s => {
     const el = document.getElementById(s); if(el) el.classList.toggle("hidden", s !== id);
@@ -1533,11 +1556,14 @@ const Game = {
   async botToggle(on, btn){
     if(btn) btn.disabled = true;
     try{
+      logBook("Interruptor pulsado: " + (on ? "encender" : "apagar"));
       const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: !!on });
+      logBook("Respuesta del servidor:", r);
       toast(on ? "🌞 " + un((r && r.bots) || 0) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados: ya no juegan ni atacan.");
       await this.admBotsPanel();
+      logBook("Panel actualizado: ahora " + (this.botAuto ? "encendidos" : "apagados"));
     }
-    catch(e){ if(btn) btn.disabled = false; toast(shortMsg(e), true); }
+    catch(e){ if(btn) btn.disabled = false; logBook("FALLO al cambiar:", (e && e.message) || e); toast(shortMsg(e), true); }
   },
   admFee(){
     const f = (this.mktFee != null) ? this.mktFee : 20;
@@ -1657,7 +1683,7 @@ const Game = {
         '<div class="pactMeta">' + (auto
           ? 'Los ' + un(list.length) + ' reinos automáticos juegan sin parar (cada uno a su ritmo) y se ven siempre en línea, como un jugador más.'
           : 'Están de vacaciones: no juegan, no construyen ni atacan, y no aparecen en el contador en línea.') + '</div>' +
-        '<button class="btn' + (auto ? ' danger' : '') + '" id="botAuto">' + (auto ? '🌙 Apagar todos' : '🌞 Encender todos') + '</button>' +
+        '<button type="button" class="btn' + (auto ? ' danger' : '') + '" id="botAuto" onclick="Game.botToggle(!Game.botAuto, this)">' + (auto ? '🌙 Apagar todos' : '🌞 Encender todos') + '</button>' +
       '</div>' +
       '<div class="secTitle" style="margin:16px 0 0">🏪 Lo que venden en el mercado</div>' +
       '<p class="hint" style="margin:6px 0">Precio en 🧿 CUP por unidad. Ponlo de <b>desde</b> a <b>hasta</b>; si pones <b>hasta 0</b>, no venden ese objeto. Nunca compran: solo ponen en venta lo que les sobra (oro, madera, mineral y tropas).</p>' +
@@ -1685,7 +1711,7 @@ const Game = {
       const b = el.target.closest ? el.target.closest("#botAuto") : null; if(!b) return;
       this.botToggle(!this.botAuto, b);
     });
-    const aa = document.getElementById("botAuto"); if(aa) aa.disabled = false;
+    const aa = document.getElementById("botAuto"); if(aa){ aa.disabled = false; aa.onclick = e => { e.preventDefault(); if(e.stopPropagation) e.stopPropagation(); this.botToggle(!this.botAuto, aa); }; }
     const ab = $("#botAdd"); if(ab) ab.onclick = async () => {
       const nm = ($("#botName").value || "").trim();
       const king = ($("#botKing").value || "").trim();
@@ -1711,8 +1737,9 @@ const Game = {
     };
     const ar = $("#botRun"); if(ar) ar.onclick = async () => {
       ar.disabled = true;
-      try{ const r = await sbRpc("wow_admin_bot_run", { p_token: this.me.token }); toast("Han jugado " + un(r.acted || 0) + " reinos."); await this.admBotsPanel(); }
-      catch(e){ ar.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+      try{ logBook("Jugar ahora pulsado");
+        const r = await sbRpc("wow_admin_bot_run", { p_token: this.me.token }); toast("Han jugado " + un(r.acted || 0) + " reinos."); await this.admBotsPanel(); }
+      catch(e){ ar.disabled = false; logBook("FALLO jugar ahora:", (e && e.message) || e); notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const ap = $("#botPurge"); if(ap) ap.onclick = async () => {
       if(!confirm("¿Quitar TODOS los reinos automáticos? Desaparecerán del mapa y del ranking.")) return;
@@ -1736,9 +1763,10 @@ const Game = {
       if(el.dataset.b === "ren") el.onclick = () => this.admRenameBot(el.dataset.id);
       if(el.dataset.b === "on") el.onclick = async () => {
         const on = el.dataset.on !== "1";
-        try{ await sbRpc("wow_admin_bot_stop", { p_token: this.me.token, p_id: el.dataset.id, p_on: on });
+        try{ logBook("Pausar/Reanudar " + el.dataset.id + " -> " + (on ? "activo" : "pausado"));
+          await sbRpc("wow_admin_bot_stop", { p_token: this.me.token, p_id: el.dataset.id, p_on: on });
           toast(on ? "Vuelve a jugar." : "Pausado."); await this.admBotsPanel(); }
-        catch(e){ toast(shortMsg(e), true); }
+        catch(e){ logBook("FALLO pausar/reanudar:", (e && e.message) || e); toast(shortMsg(e), true); }
       };
       if(el.dataset.b === "del") el.onclick = async () => {
         if(!confirm("¿Quitar este reino? Se borrará con todo lo suyo (edificios, tropas y plazas).")) return;
@@ -1964,7 +1992,7 @@ const Game = {
 window.addEventListener("error", ev => {
   try{ toast("Error: " + (ev.message || "desconocido"), true); }catch(_){}
 });
-document.addEventListener("DOMContentLoaded", () => Auth.init());
+document.addEventListener("DOMContentLoaded", () => { logBind(); Auth.init(); });
 
 /* ----- mercado (entre jugadores) ----- */
 const MKT_ITEMS = ["cup","gold","wood","ore","soldado","arquero","jinete","mago","paladin","dragon"];
