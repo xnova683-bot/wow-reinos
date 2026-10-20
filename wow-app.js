@@ -1508,6 +1508,15 @@ const Game = {
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
     el.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => this.admAction(b.dataset.a, b.dataset.id, b.dataset.on));
   },
+  async botToggle(on, btn){
+    if(btn) btn.disabled = true;
+    try{
+      const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: !!on });
+      toast(on ? "🌞 " + un((r && r.bots) || 0) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados: ya no juegan ni atacan.");
+      await this.admBotsPanel();
+    }
+    catch(e){ if(btn) btn.disabled = false; toast(shortMsg(e), true); }
+  },
   admFee(){
     const f = (this.mktFee != null) ? this.mktFee : 20;
     const s = (this.throneShare != null) ? this.throneShare : 1;
@@ -1650,17 +1659,11 @@ const Game = {
         (list.length ? '<button class="btn sm danger" id="botPurge">🗑 Quitarlos todos</button>' : '') +
       '</div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
-    const aa = $("#botAuto"); if(aa) aa.onclick = async () => {
-      const on = !this.botAuto;
-      aa.disabled = true;
-      try{
-        const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: on });
-        this.botAuto = on;
-        toast(on ? "🌞 " + un((r && r.bots) || list.length) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados: ya no juegan ni atacan.");
-        await this.admBotsPanel();
-      }
-      catch(e){ aa.disabled = false; toast(shortMsg(e), true); }
-    };
+    document.getElementById("modalBox").addEventListener("click", el => {
+      const b = el.target.closest ? el.target.closest("#botAuto") : null; if(!b) return;
+      this.botToggle(!this.botAuto, b);
+    });
+    const aa = document.getElementById("botAuto"); if(aa) aa.disabled = false;
     const ab = $("#botAdd"); if(ab) ab.onclick = async () => {
       const nm = ($("#botName").value || "").trim();
       const king = ($("#botKing").value || "").trim();
