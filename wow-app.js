@@ -2035,8 +2035,8 @@ Game.openFort = async function(node, kind){
 
       }
     }else{
-      const gd = (t && t.gdetail) || {};
-      const gkeys = Object.keys(gd).filter(k => Number(gd[k]) > 0);
+      const mc = (t && t.mycontrib) || {};
+      const gkeys = Object.keys(mc).filter(k => Number(mc[k]) > 0);
       body += '<div class="muted" style="margin-top:10px">Enviar refuerzos desde tu reino</div>';
       if(!troops.length){
         body += '<div class="muted">No tienes tropas para reforzar.</div>';
@@ -2049,14 +2049,16 @@ Game.openFort = async function(node, kind){
         });
       }
       if(gkeys.length){
-        body += '<div class="muted" style="margin-top:12px">Retirar tropas de la guarnición</div>';
+        body += '<div class="muted" style="margin-top:12px">Retirar tus tropas de la guarnición</div>';
         gkeys.forEach(k => {
           const m = TRP[k] || { e: "⚔️", n: k };
-          const gq = Math.floor(Number(gd[k]) || 0);
-          body += '<div class="atkRow"><span class="an">' + (m.e || "⚔️") + ' ' + m.n + '</span><span class="amax">de ' + un(gq) + '</span>' +
+          const gq = Math.floor(Number(mc[k]) || 0);
+          body += '<div class="atkRow"><span class="an">' + (m.e || "⚔️") + ' ' + m.n + '</span><span class="amax">tu aporte: ' + un(gq) + '</span>' +
             '<input id="thw_' + k + '" type="number" min="0" step="1" max="' + gq + '" value="">' +
             '<button class="btn sm" data-thwmax="' + k + '">MAX</button></div>';
         });
+      }else{
+        body += '<div class="muted" style="margin-top:12px">Solo puedes retirar las tropas que aportaste.</div>';
       }
       body += '<div style="text-align:center;margin-top:10px">' +
         (troops.length ? '<button class="btn" id="thrReinBtn">🛡️ Reforzar guarnición</button>' : '') +
