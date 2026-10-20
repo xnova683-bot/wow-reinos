@@ -2185,123 +2185,12 @@ Game.mktTake = async function(id){
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
 };
-Game.tvGameName = function(k){
-  if(k === "dice") return "🎲 Ruleta";
-  if(k === "cards") return "🃏 Cartas";
-  if(k === "duel") return "⚔️ Duelo";
-  if(k === "jackpot_bet") return "🎟️ Bote";
-  if(k === "jackpot_win") return "🏆 ¡Bote!";
-  if(k === "jackpot_draw") return "🎯 Sorteo";
-  return k;
-};
 Game.loadTavern = async function(){
   const el = $("#tabTavern"); if(!el) return;
-  const first = !this._tvSig;
-  if(first) el.innerHTML = '<p class="empty">Entrando a la taberna…</p>';
-  let d;
-  try{ d = await sbRpc("wow_tavern_info", { p_token: this.me.token }); }
-  catch(e){ if(first) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
-  this.tv = d;
-  const sig = JSON.stringify(d);
-  if(sig === this._tvSig) return;
-  const ae = document.activeElement;
-  if(!first && ae && el.contains(ae) && ae.tagName === "INPUT") return;
-  this._tvSig = sig;
-  const mn = un(d.min), mx = un(d.max), fee = dec(d.fee), jp = un(d.jackpot_pct), jh = un(d.jackpot_h);
-  const pot = dec(d.pot);
-  let html = '<h2 style="margin-top:0;color:var(--gold)">🍺 Taberna de Azeroth</h2>';
-  if(!d.enabled){
-    html += '<p class="empty">La taberna está cerrada ahora mismo. Vuelve más tarde.</p>';
-    el.innerHTML = html; return;
-  }
-  html += '<p class="hint">Apuesta con 🧿 CUP. Apuesta entre <b>' + mn + '</b> y <b>' + mx + '</b> · comisión de la casa <b>' + fee + '%</b>. Tienes <b>' + dec(d.cup) + '</b> CUP.</p>';
-  html += '<div id="tvMsg" class="notice"></div>';
-  html += '<div class="secTitle">🎲 Ruleta (acierta el número)</div>' +
-    '<p class="hint">Elige un número del 1 al 6. Si sale, ganas el doble (menos comisión).</p>' +
-    '<div class="tvRow"><input id="tvDiceAmt" type="number" min="' + d.min + '" max="' + d.max + '" value="' + d.min + '" style="width:90px">' +
-    '<select id="tvDicePick">' + [1,2,3,4,5,6].map(n => '<option value="' + n + '">' + n + '</option>').join("") + '</select>' +
-    '<button class="btn" id="tvDiceGo">🎲 Tirar</button></div>';
-  html += '<div class="secTitle">🃏 Cartas (mayor o menor)</div>' +
-    '<p class="hint">Se sacan dos cartas (1–13). Apuesta a cuál es mayor. Empate: te devuelven la apuesta.</p>' +
-    '<div class="tvRow"><input id="tvCardAmt" type="number" min="' + d.min + '" max="' + d.max + '" value="' + d.min + '" style="width:90px">' +
-    '<button class="btn" id="tvCardHigh">🃏 La 2ª es MAYOR</button><button class="btn" id="tvCardLow">🃏 La 2ª es MENOR</button></div>';
-  html += '<div class="secTitle">⚔️ Duelo de dados</div>' +
-    '<p class="hint">Tu dado contra el de la casa (1–6). Ganas si el tuyo es mayor. Empate: te devuelven la apuesta.</p>' +
-    '<div class="tvRow"><input id="tvDuelAmt" type="number" min="' + d.min + '" max="' + d.max + '" value="' + d.min + '" style="width:90px">' +
-    '<button class="btn" id="tvDuelGo">⚔️ Duelo</button></div>';
-  html += '<div class="secTitle">🎟️ Bote acumulado</div>' +
-    '<p class="hint">Bote actual: <b>🧿 ' + pot + '</b>. Cada apuesta aporta un <b>' + jp + '%</b> al bote. Cada <b>' + jh + ' h</b> alguien pulsa "Probar suerte" y se lo lleva (más probabilidad cuanto más hayas aportado).</p>' +
-    '<p class="hint">Tu aporte: <b>' + dec(d.my_contrib) + '</b> CUP.' +
-    (d.last_winner ? ' Último ganador: <b>' + esc(d.last_winner) + '</b>.' : '') + '</p>' +
-    '<div class="tvRow"><input id="tvPotAmt" type="number" min="' + d.min + '" max="' + d.max + '" value="' + d.min + '" style="width:90px">' +
-    '<button class="btn" id="tvPotBet">🎟️ Apostar al bote</button>' +
-    '<button class="btn" id="tvDraw"' + (d.can_draw ? '' : ' disabled') + '>🎯 Probar suerte</button></div>';
-  html += '<div class="secTitle">📜 Últimas jugadas</div>';
-  if(!(d.history || []).length) html += '<div class="empty">Aún no hay jugadas.</div>';
-  else html += (d.history || []).map(h => {
-    const won = Number(h.payout) > 0;
-    return '<div class="fleet mkRow"><span class="fi">' + (won ? "🏆" : "💸") + '</span>' +
-      '<div class="fmain"><div class="ft">' + this.tvGameName(h.game) + ' · ' + esc(h.who || "?") + '</div>' +
-      '<div class="fd">apostó <b>' + dec(h.amount) + '</b> · ' + (won ? 'ganó <b>' + dec(h.payout) + '</b>' : 'perdió') + '</div></div>' +
-      '<div class="fcount" style="opacity:.6;font-size:12px">' + hora(h.created) + '</div></div>';
-  }).join("");
-  el.innerHTML = html;
-  const dg = $("#tvDiceGo"); if(dg) dg.onclick = () => this.tvDice();
-  const ch = $("#tvCardHigh"); if(ch) ch.onclick = () => this.tvCards(true);
-  const cl = $("#tvCardLow"); if(cl) cl.onclick = () => this.tvCards(false);
-  const du = $("#tvDuelGo"); if(du) du.onclick = () => this.tvDuel();
-  const pb = $("#tvPotBet"); if(pb) pb.onclick = () => this.tvPotBet();
-  const dr = $("#tvDraw"); if(dr) dr.onclick = () => this.tvDraw();
-};
-Game.tvAmt = function(sel){
-  const v = Math.floor(Number($(sel) && $(sel).value) || 0);
-  return v;
-};
-Game.tvDice = async function(){
-  const amt = this.tvAmt("#tvDiceAmt"), pick = Number($("#tvDicePick").value);
-  try{
-    const r = await sbRpc("wow_tavern_dice", { p_token: this.me.token, p_amount: amt, p_pick: pick });
-    this._tvSig = null;
-    await this.refresh(); this.loadTavern();
-    toast("🎲 Salió " + r.roll + ". " + (r.win ? "¡Acertaste!" : "No era ese.") , !r.win);
-  }catch(e){ toast(shortMsg(e), true); }
-};
-Game.tvCards = async function(high){
-  const amt = this.tvAmt("#tvCardAmt");
-  try{
-    const r = await sbRpc("wow_tavern_cards", { p_token: this.me.token, p_amount: amt, p_mayor: !!high });
-    this._tvSig = null;
-    const res = r.tie ? "Empate." : (r.win ? "¡Acertaste!" : "Fallaste.");
-    toast("🃏 " + r.c1 + " y " + r.c2 + ". " + res, !r.win && !r.tie);
-    await this.refresh(); this.loadTavern();
-  }catch(e){ toast(shortMsg(e), true); }
-};
-Game.tvDuel = async function(){
-  const amt = this.tvAmt("#tvDuelAmt");
-  try{
-    const r = await sbRpc("wow_tavern_duel", { p_token: this.me.token, p_amount: amt });
-    this._tvSig = null;
-    const res = r.tie ? "Empate." : (r.win ? "¡Ganaste!" : "Perdiste.");
-    toast("⚔️ Tú " + r.mine + " · Casa " + r.theirs + ". " + res, !r.win && !r.tie);
-    await this.refresh(); this.loadTavern();
-  }catch(e){ toast(shortMsg(e), true); }
-};
-Game.tvPotBet = async function(){
-  const amt = this.tvAmt("#tvPotAmt");
-  try{
-    const r = await sbRpc("wow_tavern_jackpot_bet", { p_token: this.me.token, p_amount: amt });
-    this._tvSig = null;
-    toast("🎟️ Aportaste " + dec(r.amount) + " CUP. El bote sube a " + dec(r.pot) + ".");
-    await this.refresh(); this.loadTavern();
-  }catch(e){ toast(shortMsg(e), true); }
-};
-Game.tvDraw = async function(){
-  try{
-    const r = await sbRpc("wow_tavern_draw", { p_token: this.me.token });
-    this._tvSig = null;
-    toast((r.me ? "🏆 ¡Te llevaste el bote de " : "🎯 El bote fue para " + esc(r.winner_name) + ": ") + dec(r.pot) + " CUP!", !r.me);
-    await this.refresh(); this.loadTavern();
-  }catch(e){ toast(shortMsg(e), true); }
+  el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🍺 Taberna de Azeroth</h2>' +
+    '<p class="hint">Muy pronto habrá juegos aquí. Estamos preparando la mesa… vuelve en un rato.</p>' +
+    '<div class="empty" style="font-size:42px">🍺🎲🃏</div>' +
+    '<p class="hint" style="text-align:center">Próximamente…</p>';
 };
 Game.thrEvent = function(h, kind){
   const who = esc(h.actor_name || "?");
