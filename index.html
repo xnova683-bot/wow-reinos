@@ -375,8 +375,11 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .mArmy.mine{font-size:23px; filter:drop-shadow(0 0 5px rgba(240,192,96,.95)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
 .mArmy.back{font-size:22px; filter:drop-shadow(0 0 5px rgba(90,160,255,.9)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
 .mArmy.spy{font-size:17px; opacity:.9; filter:drop-shadow(0 0 5px rgba(150,110,220,.95)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
-.mArmy.gift{font-size:21px; filter:drop-shadow(0 0 5px rgba(120,210,120,.95)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
-.mArmy.gift.back{font-size:20px; filter:drop-shadow(0 0 5px rgba(90,160,255,.9)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
+.mArmy.gift{width:30px; height:24px; font-size:0;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 48'%3E%3Cstyle%3E@keyframes gw{from{transform:rotate(0)}to{transform:rotate(360deg)}}%3C/style%3E%3Cg%3E%3Cpath d='M4 30 Q4 12 30 12 Q56 12 56 30 Z' fill='%23e9d8a6' stroke='%23b9944e' stroke-width='2'/%3E%3Cpath d='M18 13 L18 30 M30 12 L30 30 M42 13 L42 30' stroke='%23c9a961' stroke-width='1.6'/%3E%3Crect x='6' y='30' width='48' height='12' rx='1.5' fill='%23a9743e' stroke='%237a4f24' stroke-width='2'/%3E%3Cpath d='M6 36 H54' stroke='%237a4f24' stroke-width='1.4' opacity='.7'/%3E%3Cg style='transform-box:fill-box;transform-origin:50%25 50%25;animation:gw 0.9s linear infinite'%3E%3Ccircle cx='16' cy='43' r='5.5' fill='%235b3a1a' stroke='%23302110' stroke-width='1.6'/%3E%3Cpath d='M16 38 V48 M11 43 H21 M12.5 39.5 L19.5 46.5 M19.5 39.5 L12.5 46.5' stroke='%23d8b071' stroke-width='1'/%3E%3C/g%3E%3Cg style='transform-box:fill-box;transform-origin:50%25 50%25;animation:gw 0.9s linear infinite'%3E%3Ccircle cx='44' cy='43' r='5.5' fill='%235b3a1a' stroke='%23302110' stroke-width='1.6'/%3E%3Cpath d='M44 38 V48 M39 43 H49 M40.5 39.5 L47.5 46.5 M47.5 39.5 L40.5 46.5' stroke='%23d8b071' stroke-width='1'/%3E%3C/g%3E%3Cpath d='M54 35 h3 v4 h-3 z' fill='%237a4f24'/%3E%3C/g%3E%3C/svg%3E") center/contain no-repeat;
+  filter:drop-shadow(0 0 5px rgba(120,210,120,.95)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
+.mArmy.gift.back{width:28px; height:22px;
+  filter:drop-shadow(0 0 5px rgba(90,160,255,.9)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
 .mArmy.fx{font-size:27px; z-index:5; filter:drop-shadow(0 0 9px rgba(240,192,96,1)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
 .mArmy.fx.back{font-size:25px; filter:drop-shadow(0 0 9px rgba(90,160,255,1)) drop-shadow(0 2px 3px rgba(0,0,0,.9))}
 @media(max-width:520px){
@@ -389,7 +392,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   .mArmy.mine{font-size:19px}
   .mArmy.back{font-size:18px}
   .mArmy.spy{font-size:14px}
-  .mArmy.gift{font-size:17px}
+  .mArmy.gift{width:24px; height:19px}
 }
 </style>
 </head>
@@ -509,5 +512,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <pre id="logPre"></pre>
 </div>
 
-    <script src="wow-app.js?v=20261020a"></script>
+    <script src="wow-app.js?v=20261020b"></script>
 </body></html>
