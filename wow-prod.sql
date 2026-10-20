@@ -99,7 +99,8 @@ begin
     values ('prod', 'Producción global puesta en x'||v||' por '||u.name, (extract(epoch from now())*1000)::bigint);
   return jsonb_build_object('ok', true, 'prod_mult', v);
 end $$;
-revoke all on function public.wow_admin_setprod(text, numeric) from public, anon, authenticated;
+grant execute on function public.wow_admin_setprod(text, numeric) to anon, authenticated;
+revoke all on function public.wow_admin_setprod(text, numeric) from public;
 
 -- cambiar el multiplicador de UN REINO (solo admin)
 create or replace function public.wow_admin_setproduser(p_token text, p_id text, p_mult numeric)
@@ -117,7 +118,8 @@ begin
     values ('prod', 'Producción de '||t.name||' puesta en x'||v||' por '||u.name, (extract(epoch from now())*1000)::bigint);
   return jsonb_build_object('ok', true, 'id', t.id, 'prod_mult', v);
 end $$;
-revoke all on function public.wow_admin_setproduser(text, text, numeric) from public, anon, authenticated;
+grant execute on function public.wow_admin_setproduser(text, text, numeric) to anon, authenticated;
+revoke all on function public.wow_admin_setproduser(text, text, numeric) from public;
 
 -- estado: avisa del multiplicador del reino (global x suyo)
 create or replace function public.wow_state(p_token text)
@@ -155,4 +157,5 @@ begin
     'ally_emblem', _wow_ally_icon(u.alliance),
     'online', _wow_online_count());
 end $$;
-revoke all on function public.wow_state(text) from public, anon, authenticated;
+grant execute on function public.wow_state(text) to anon, authenticated;
+revoke all on function public.wow_state(text) from public;
