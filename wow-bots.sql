@@ -433,6 +433,7 @@ begin
       perform cron.unschedule('wow_bots');
     exception when others then null;
     end;
-    perform cron.schedule('wow_bots', '* * * * *', 'select public.wow_bots_tick();');
+    perform cron.schedule('wow_bots', '* * * * *',
+      'do $$ begin perform set_config(''lock_timeout'',''1500ms'',true); perform public.wow_bots_tick(); end $$;');
   end if;
 end $$;
