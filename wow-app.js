@@ -2191,9 +2191,9 @@ Game.loadTavern = async function(){
       '<img src="img/taberna.jpg?v=1" alt="Taberna de Azeroth">' +
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
-          '<button disabled title="Próximamente">🎲 Juego 1</button>' +
-          '<button disabled title="Próximamente">🃏 Juego 2</button>' +
-          '<button disabled title="Próximamente">🎟️ Juego 3</button>' +
+          '<button disabled title="Próximamente">💃 Madam</button>' +
+          '<button disabled title="Próximamente">🗡️ Mercenarios</button>' +
+          '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon">🍺 Próximamente…</div>' +
       '</div>' +
