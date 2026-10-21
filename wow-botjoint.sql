@@ -43,9 +43,12 @@ begin
   select o.* into op from wow_joint_ops o
     where o.alliance = ua and o.leader = p_id and o.status = 'open' and o.deadline_ms > ms
     order by o.created_ms asc limit 1;
+  prot := _wow_protect_below();
+  mypts := _wow_points(p_id);
   if op.id is not null then
     select count(*) into others from wow_joint_ops_troops t where t.op_id = op.id and t.owner <> p_id;
-    if others > 0 or op.created_ms < ms - 10800000 then
+    if (others > 0 or op.created_ms < ms - 10800000)
+       and _wow_target_attack_ok(op.target_kind, op.target_ref, op.target_node, prot, mypts) then
       begin
         perform wow_joint_launch(b.token, op.id);
         insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'launch', ms);
@@ -60,7 +63,8 @@ begin
       where o.alliance = ua and o.status = 'open' and o.deadline_ms > ms + 1800000
         and not exists (select 1 from wow_joint_ops_troops t where t.op_id = o.id and t.owner = p_id)
       order by o.created_ms desc limit 1;
-    if op.id is not null and random() < 0.45 + agro::numeric/250 then
+    if op.id is not null and random() < 0.45 + agro::numeric/250
+       and _wow_target_attack_ok(op.target_kind, op.target_ref, op.target_node, prot, mypts) then
       army := _wow_bot_army(p_id, 0.5);
       if army <> '{}'::jsonb then
         begin
@@ -82,6 +86,7 @@ begin
         where th.kind = 'aldea' and th.holder is distinct from p_id
           and (th.holder_ally is null or th.holder_ally <> ua)
           and coalesce((select sum((x.value)::int) from jsonb_each_text(th.garrison) x), 0) = 0
+          and _wow_target_attack_ok('aldea', null, th.node, prot, mypts)
         order by random() limit 1;
       if node is not null then kind := 'aldea';
       else
@@ -89,6 +94,7 @@ begin
           join wow_ally_wars wr on wr.active and (wr.a = ua or wr.b = ua)
             and th.holder_ally = case when wr.a = ua then wr.b else wr.a end
          where th.holder_ally is not null
+           and _wow_target_attack_ok('trono', null, th.node, prot, mypts)
          order by random() limit 1;
         if node is not null then kind := nk;
         else
@@ -212,13 +218,15 @@ begin
   end if;
   if random()*100 < agro and (select coalesce(sum(qty),0) from wow_troops where owner_id = p_id) >= 20 then
     mypts := _wow_points(p_id);
+    prot := _wow_protect_below();
     army := _wow_bot_army(p_id, 0.6);
-    if army <> '{}'::jsonb then
+    if army <> '{}'::jsonb and (prot = 0 or mypts >= prot) then
       select th.node into node from wow_thrones th
         where th.kind = 'aldea'
           and th.holder is distinct from p_id
           and (th.holder_ally is null or ua is null or th.holder_ally <> ua)
           and coalesce((select sum((x.value)::int) from jsonb_each_text(th.garrison) x), 0) = 0
+          and _wow_target_attack_ok('aldea', null, th.node, prot, mypts)
         order by random() limit 1;
       if node is not null then
         begin perform wow_throne_attack(tok, node, army); exception when others then null; end;
@@ -228,6 +236,7 @@ begin
             join wow_ally_wars wr on wr.active and (wr.a = ua or wr.b = ua)
               and th.holder_ally = case when wr.a = ua then wr.b else wr.a end
            where th.holder_ally is not null
+             and _wow_target_attack_ok('trono', null, th.node, prot, mypts)
            order by random() limit 1;
           if node is not null then
             begin perform wow_throne_attack(tok, node, army); exception when others then null; end;

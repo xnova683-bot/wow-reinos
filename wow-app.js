@@ -1286,9 +1286,18 @@ const Game = {
     const realms = (this.mapList || []).filter(r => !r.me && r.id !== this.me.id && !(r.alliance && (r.alliance === al.tag || r.alliance === al.name)));
     const thrones = (this._thrones || []).filter(t => t.holder_ally !== al.id);
     const aldeas = (this._aldeas || []).filter(a => a.holder_ally !== al.id);
-    const oRealm = realms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + (r.alliance ? " [" + esc(r.alliance) + "]" : "") + '</option>').join("");
-    const oThrone = thrones.map(t => '<option value="' + t.node + '">' + esc(t.name) + ' · guarnición ' + un(t.garrison || 0) + '</option>').join("");
-    const oAldea = aldeas.map(a => '<option value="' + a.node + '">' + esc(a.name) + ' · guarnición ' + un(a.garrison || 0) + '</option>').join("");
+    const prot = this.protect;
+    const myPts = (this.st && this.st.points) || 0;
+    const protMark = (pts) => {
+      const hp = (pts != null && pts !== "") ? Number(pts) : null;
+      if(prot == null || prot <= 0 || hp == null) return "";
+      if(hp < prot) return " 🔰 protegido";
+      if((myPts - hp) >= prot) return " ⚖️ mucha diferencia";
+      return "";
+    };
+    const oRealm = realms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + (r.alliance ? " [" + esc(r.alliance) + "]" : "") + protMark(r.points) + '</option>').join("");
+    const oThrone = thrones.map(t => '<option value="' + t.node + '">' + esc(t.name) + ' · guarnición ' + un(t.garrison || 0) + protMark(t.holder_points) + '</option>').join("");
+    const oAldea = aldeas.map(a => '<option value="' + a.node + '">' + esc(a.name) + ' · guarnición ' + un(a.garrison || 0) + protMark(a.holder_points) + '</option>').join("");
     modal(`<h2 style="margin-top:0;color:var(--gold)">🚩 Convocar ataque conjunto</h2>
       <p style="color:var(--dim);font-size:13px">Se unen las tropas de la alianza contra un objetivo común: una sola batalla con el ejército unido y el botín repartido en proporción a lo que aporta cada miembro.</p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
@@ -2581,9 +2590,22 @@ Game.openFort = async function(node, kind){
     if(this.st && this.st.pos != null && this.st.pos >= 0){
       body += '<div class="muted" style="margin-top:8px">⏱ Tus tropas tardan ~' + travelNodes(mapPosNode(this.st.pos), node) + ' s en llegar.</div>';
     }
+    const prot = this.protect;
+    const myPts = (this.st && this.st.points) || 0;
+    const hpts = (t && t.holder_points != null) ? Number(t.holder_points) : null;
+    const isProt = (prot != null && prot > 0 && hpts != null && hpts < prot);
+    const tooWeak = (prot != null && prot > 0 && hpts != null && !isProt && (myPts - hpts) >= prot);
+    const canAtk = !isProt && !tooWeak;
     if(!own){
       body += '<div class="muted" style="margin-top:10px">Enviar desde tu reino</div>';
-      if(!troops.length){
+      if(isProt){
+        body += '<div class="muted" style="color:var(--gold);margin-top:6px">🔰 Este lugar está protegido por ser de un novato (menos de ' + un(prot) + ' puntos): no puedes atacarlo.</div>';
+      }else if(tooWeak){
+        body += '<div class="muted" style="margin-top:6px">⚖️ Hay demasiada diferencia de puntos (' + un(prot) + '): busca un rival más parejo.</div>';
+      }
+      if(isProt || tooWeak){
+        body += '<div class="muted" style="margin-top:6px">No puedes atacar este lugar ahora mismo.</div>';
+      }else if(!troops.length){
         body += '<div class="muted">No tienes tropas. Entrena en el Cuartel (pestaña ⚔️ Tropas).</div>';
       }else{
         troops.forEach(x => {

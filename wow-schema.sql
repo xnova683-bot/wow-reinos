@@ -3916,12 +3916,70 @@ $$;
 revoke all on function public._wow_res_str(jsonb) from public, anon, authenticated;
 
 -- ----------------------------------------------------------------
+-- 2b) Proteccion de novatos en tronos y aldeas.
+--     La parte protegida de un lugar es su dueño y, si el lugar no
+--     tiene dueño, el principal contribuyente de su guarnición.
+-- ----------------------------------------------------------------
+create or replace function public._wow_node_protect(p_node integer)
+returns jsonb language plpgsql stable security definer set search_path to 'public' as $$
+
+declare t wow_thrones; uid text; pts numeric; nm text;
+begin
+  select * into t from wow_thrones where node = p_node;
+  if t.node is null then
+    return jsonb_build_object('kind','none','points',null,'user_id',null,'name',null);
+  end if;
+  if t.holder is not null and t.holder <> '' then
+    pts := _wow_points(t.holder);
+    select coalesce(w.name, t.holder_name) into nm from wow_users w where w.id = t.holder;
+    return jsonb_build_object('kind','holder','points',pts,'user_id',t.holder,'name',nm);
+  end if;
+  select c.user_id into uid from wow_node_contrib c
+    where c.node = p_node
+      and coalesce((select sum((x.value)::int) from jsonb_each_text(c.troops) x),0) > 0
+    order by (select coalesce(sum((x.value)::int),0) from jsonb_each_text(c.troops) x) desc
+    limit 1;
+  if uid is null then
+    return jsonb_build_object('kind','none','points',null,'user_id',null,'name',null);
+  end if;
+  pts := _wow_points(uid);
+  select w.name into nm from wow_users w where w.id = uid;
+  return jsonb_build_object('kind','garrison','points',pts,'user_id',uid,'name',nm);
+end $$;
+revoke all on function public._wow_node_protect(integer) from public, anon, authenticated;
+
+-- Un objetivo (reino o lugar) se puede atacar con estos puntos y este
+-- umbral de proteccion: el atacante llega al umbral, la parte protegida
+-- tambien y la diferencia no llega al umbral.
+create or replace function public._wow_target_attack_ok(p_kind text, p_ref text, p_node integer, p_prot numeric, p_pts numeric)
+returns boolean language plpgsql stable security definer set search_path to 'public' as $$
+
+declare tpts numeric;
+begin
+  if p_prot is null or p_prot <= 0 then return true; end if;
+  if p_pts is not null and p_pts < p_prot then return false; end if;
+  if p_kind = 'reino' then
+    select _wow_points(p_ref) into tpts;
+    if tpts is null then return false; end if;
+    if tpts < p_prot then return false; end if;
+    if p_pts is not null and (p_pts - tpts) >= p_prot then return false; end if;
+    return true;
+  end if;
+  select (_wow_node_protect(p_node)->>'points')::numeric into tpts;
+  if tpts is null then return true; end if;
+  if tpts < p_prot then return false; end if;
+  if p_pts is not null and (p_pts - tpts) >= p_prot then return false; end if;
+  return true;
+end $$;
+revoke all on function public._wow_target_attack_ok(text, text, integer, numeric, numeric) from public, anon, authenticated;
+
+-- ----------------------------------------------------------------
 -- 3) Info de nodos: dueño visible + "es mio / de mi alianza"
 -- ----------------------------------------------------------------
 create or replace function public._wow_fort_info(p_uid text, p_kind text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text; hist jsonb;
-        ua text; lab text;
+        ua text; lab text; hp numeric; pk text; pn text; pr jsonb;
 begin
   ua := _wow_ally_of(p_uid);
   for t in select * from wow_thrones where kind = p_kind order by node loop
@@ -3936,12 +3994,23 @@ begin
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     lab := null;
     if t.holder_ally is not null then lab := _wow_ally_label(t.holder_ally); end if;
+    if t.holder is not null and t.holder <> '' then
+      hp := _wow_points(t.holder);
+      pk := 'holder';
+      pn := t.holder_name;
+    else
+      pr := _wow_node_protect(t.node);
+      hp := (pr->>'points')::numeric;
+      pk := pr->>'kind';
+      pn := pr->>'name';
+    end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'kind', t.kind,
       'holder', t.holder, 'holder_name', t.holder_name,
       'holder_ally', t.holder_ally, 'ally', lab,
       'faction', fac, 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
-      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist);
+      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist,
+      'holder_points', hp, 'prot_kind', pk, 'prot_name', pn);
   end loop;
   return arr;
 end $$;
@@ -4090,6 +4159,7 @@ revoke all on function public._wow_throne_land(bigint) from public, anon, authen
 create or replace function public.wow_throne_attack(p_token text, p_node integer, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare u wow_users; t wow_thrones; ms bigint; army jsonb; z record; travel integer;
+        protect numeric; tpts numeric; pr jsonb;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -4102,6 +4172,19 @@ begin
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder_ally is not null and t.holder_ally = u.alliance then
     raise exception 'Ese lugar ya es de tu alianza.'; end if;
+  protect := _wow_protect_below();
+  if protect > 0 then
+    if not u.is_admin and _wow_points(u.id) < protect then
+      raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+    pr := _wow_node_protect(t.node);
+    if (pr->>'points') is not null then
+      tpts := (pr->>'points')::numeric;
+      if tpts < protect then
+        raise exception 'Ese lugar está protegido por ser de un novato (menos de % puntos).', trunc(protect)::int; end if;
+      if not u.is_admin and (_wow_points(u.id) - tpts) >= protect then
+        raise exception 'No puedes atacar a un lugar cuyo dueño es mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
+    end if;
+  end if;
   if exists(select 1 from wow_fleets where attacker = u.id and node = p_node and state = 'outbound') then
     raise exception 'Ya tienes un ejército en camino a %.', t.name; end if;
   for z in select key, value::int from jsonb_each_text(army) loop
@@ -4894,7 +4977,7 @@ grant execute on function public.wow_alliance_emblem(text, text) to anon, authen
 create or replace function public._wow_fort_info(p_uid text, p_kind text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text; hist jsonb;
-        ua text; lab text;
+        ua text; lab text; hp numeric; pk text; pn text; pr jsonb;
 begin
   ua := _wow_ally_of(p_uid);
   for t in select * from wow_thrones where kind = p_kind order by node loop
@@ -4909,12 +4992,23 @@ begin
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     lab := null;
     if t.holder_ally is not null then lab := _wow_ally_label(t.holder_ally); end if;
+    if t.holder is not null and t.holder <> '' then
+      hp := _wow_points(t.holder);
+      pk := 'holder';
+      pn := t.holder_name;
+    else
+      pr := _wow_node_protect(t.node);
+      hp := (pr->>'points')::numeric;
+      pk := pr->>'kind';
+      pn := pr->>'name';
+    end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'kind', t.kind,
       'holder', t.holder, 'holder_name', t.holder_name,
       'holder_ally', t.holder_ally, 'ally', lab, 'ally_icon', _wow_ally_icon(t.holder_ally),
       'faction', fac, 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
-      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist);
+      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist,
+      'holder_points', hp, 'prot_kind', pk, 'prot_name', pn);
   end loop;
   return arr;
 end $$;
@@ -5696,7 +5790,7 @@ grant execute on function public.wow_throne_withdraw(text, integer, jsonb) to an
 create or replace function public._wow_fort_info(p_uid text, p_kind text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text; hist jsonb;
-        ua text; lab text;
+        ua text; lab text; hp numeric; pk text; pn text; pr jsonb;
 begin
   ua := _wow_ally_of(p_uid);
   for t in select * from wow_thrones where kind = p_kind order by node loop
@@ -5711,12 +5805,23 @@ begin
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     lab := null;
     if t.holder_ally is not null then lab := _wow_ally_label(t.holder_ally); end if;
+    if t.holder is not null and t.holder <> '' then
+      hp := _wow_points(t.holder);
+      pk := 'holder';
+      pn := t.holder_name;
+    else
+      pr := _wow_node_protect(t.node);
+      hp := (pr->>'points')::numeric;
+      pk := pr->>'kind';
+      pn := pr->>'name';
+    end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'kind', t.kind,
       'holder', t.holder, 'holder_name', t.holder_name,
       'holder_ally', t.holder_ally, 'ally', lab, 'ally_icon', _wow_ally_icon(t.holder_ally),
       'faction', fac, 'mycontrib', _wow_contrib_get(t.node, p_uid), 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
-      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist);
+      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist,
+      'holder_points', hp, 'prot_kind', pk, 'prot_name', pn);
   end loop;
   return arr;
 end $$;
@@ -7398,7 +7503,7 @@ declare
   ms bigint; z record; e record;
   sent jsonb; actual jsonb := '{}'::jsonb; comb jsonb := '{}'::jsonb;
   travel integer; avail int; take int; protect numeric; got boolean := false;
-  tname text; lab text;
+  tname text; lab text; tpts numeric; pr jsonb;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -7413,11 +7518,11 @@ begin
     update wow_joint_ops set status = 'expired' where id = op.id and status = 'open';
     raise exception 'La convocatoria ha caducado.';
   end if;
+  protect := _wow_protect_below();
   if op.target_kind = 'reino' then
     select * into t from wow_users where id = op.target_ref and active;
     if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
     if t.is_admin then raise exception 'No puedes atacar a un administrador.'; end if;
-    protect := _wow_protect_below();
     if protect > 0 then
       if _wow_points(t.id) < protect then
         raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
@@ -7431,6 +7536,28 @@ begin
     select * into th from wow_thrones where node = op.target_node for update;
     if th.node is null then raise exception 'Ese lugar ya no existe.'; end if;
     if th.holder_ally is not null and th.holder_ally = u.alliance then raise exception 'Ese lugar ya es de tu alianza.'; end if;
+    if protect > 0 then
+      if not u.is_admin and _wow_points(u.id) < protect then
+        raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+      pr := _wow_node_protect(th.node);
+      if (pr->>'points') is not null then
+        tpts := (pr->>'points')::numeric;
+        if tpts < protect then
+          raise exception 'Ese lugar está protegido por ser de un novato (menos de % puntos).', trunc(protect)::int; end if;
+        if not u.is_admin and (_wow_points(u.id) - tpts) >= protect then
+          raise exception 'No puedes atacar a un lugar cuyo dueño es mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
+      end if;
+    end if;
+  end if;
+  if protect > 0 then
+    for e in select o.owner, w.name as pnm from wow_joint_ops_troops o
+               join wow_users w on w.id = o.owner
+              where o.op_id = op.id and o.troops <> '{}'::jsonb order by o.owner loop
+      if not (select w2.is_admin from wow_users w2 where w2.id = e.owner)
+         and _wow_points(e.owner) < protect then
+        raise exception '% está en protección de novatos: no puede atacar hasta superar % puntos. Retira sus tropas de la convocatoria.', coalesce(e.pnm,'Un miembro'), trunc(protect)::int;
+      end if;
+    end loop;
   end if;
   for e in select o.owner, o.troops from wow_joint_ops_troops o where o.op_id = op.id order by o.owner loop
     perform _wow_tick(e.owner);
@@ -8054,9 +8181,12 @@ begin
   select o.* into op from wow_joint_ops o
     where o.alliance = ua and o.leader = p_id and o.status = 'open' and o.deadline_ms > ms
     order by o.created_ms asc limit 1;
+  prot := _wow_protect_below();
+  mypts := _wow_points(p_id);
   if op.id is not null then
     select count(*) into others from wow_joint_ops_troops t where t.op_id = op.id and t.owner <> p_id;
-    if others > 0 or op.created_ms < ms - 10800000 then
+    if (others > 0 or op.created_ms < ms - 10800000)
+       and _wow_target_attack_ok(op.target_kind, op.target_ref, op.target_node, prot, mypts) then
       begin
         perform wow_joint_launch(b.token, op.id);
         insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'launch', ms);
@@ -8071,7 +8201,8 @@ begin
       where o.alliance = ua and o.status = 'open' and o.deadline_ms > ms + 1800000
         and not exists (select 1 from wow_joint_ops_troops t where t.op_id = o.id and t.owner = p_id)
       order by o.created_ms desc limit 1;
-    if op.id is not null and random() < 0.45 + agro::numeric/250 then
+    if op.id is not null and random() < 0.45 + agro::numeric/250
+       and _wow_target_attack_ok(op.target_kind, op.target_ref, op.target_node, prot, mypts) then
       army := _wow_bot_army(p_id, 0.5);
       if army <> '{}'::jsonb then
         begin
@@ -8093,6 +8224,7 @@ begin
         where th.kind = 'aldea' and th.holder is distinct from p_id
           and (th.holder_ally is null or th.holder_ally <> ua)
           and coalesce((select sum((x.value)::int) from jsonb_each_text(th.garrison) x), 0) = 0
+          and _wow_target_attack_ok('aldea', null, th.node, prot, mypts)
         order by random() limit 1;
       if node is not null then kind := 'aldea';
       else
@@ -8100,6 +8232,7 @@ begin
           join wow_ally_wars wr on wr.active and (wr.a = ua or wr.b = ua)
             and th.holder_ally = case when wr.a = ua then wr.b else wr.a end
          where th.holder_ally is not null
+           and _wow_target_attack_ok('trono', null, th.node, prot, mypts)
          order by random() limit 1;
         if node is not null then kind := nk;
         else
@@ -8223,13 +8356,15 @@ begin
   end if;
   if random()*100 < agro and (select coalesce(sum(qty),0) from wow_troops where owner_id = p_id) >= 20 then
     mypts := _wow_points(p_id);
+    prot := _wow_protect_below();
     army := _wow_bot_army(p_id, 0.6);
-    if army <> '{}'::jsonb then
+    if army <> '{}'::jsonb and (prot = 0 or mypts >= prot) then
       select th.node into node from wow_thrones th
         where th.kind = 'aldea'
           and th.holder is distinct from p_id
           and (th.holder_ally is null or ua is null or th.holder_ally <> ua)
           and coalesce((select sum((x.value)::int) from jsonb_each_text(th.garrison) x), 0) = 0
+          and _wow_target_attack_ok('aldea', null, th.node, prot, mypts)
         order by random() limit 1;
       if node is not null then
         begin perform wow_throne_attack(tok, node, army); exception when others then null; end;
@@ -8239,6 +8374,7 @@ begin
             join wow_ally_wars wr on wr.active and (wr.a = ua or wr.b = ua)
               and th.holder_ally = case when wr.a = ua then wr.b else wr.a end
            where th.holder_ally is not null
+             and _wow_target_attack_ok('trono', null, th.node, prot, mypts)
            order by random() limit 1;
           if node is not null then
             begin perform wow_throne_attack(tok, node, army); exception when others then null; end;

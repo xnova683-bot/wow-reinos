@@ -403,7 +403,7 @@ declare
   ms bigint; z record; e record;
   sent jsonb; actual jsonb := '{}'::jsonb; comb jsonb := '{}'::jsonb;
   travel integer; avail int; take int; protect numeric; got boolean := false;
-  tname text; lab text;
+  tname text; lab text; tpts numeric; pr jsonb;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -418,11 +418,11 @@ begin
     update wow_joint_ops set status = 'expired' where id = op.id and status = 'open';
     raise exception 'La convocatoria ha caducado.';
   end if;
+  protect := _wow_protect_below();
   if op.target_kind = 'reino' then
     select * into t from wow_users where id = op.target_ref and active;
     if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
     if t.is_admin then raise exception 'No puedes atacar a un administrador.'; end if;
-    protect := _wow_protect_below();
     if protect > 0 then
       if _wow_points(t.id) < protect then
         raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
@@ -436,6 +436,28 @@ begin
     select * into th from wow_thrones where node = op.target_node for update;
     if th.node is null then raise exception 'Ese lugar ya no existe.'; end if;
     if th.holder_ally is not null and th.holder_ally = u.alliance then raise exception 'Ese lugar ya es de tu alianza.'; end if;
+    if protect > 0 then
+      if not u.is_admin and _wow_points(u.id) < protect then
+        raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+      pr := _wow_node_protect(th.node);
+      if (pr->>'points') is not null then
+        tpts := (pr->>'points')::numeric;
+        if tpts < protect then
+          raise exception 'Ese lugar está protegido por ser de un novato (menos de % puntos).', trunc(protect)::int; end if;
+        if not u.is_admin and (_wow_points(u.id) - tpts) >= protect then
+          raise exception 'No puedes atacar a un lugar cuyo dueño es mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
+      end if;
+    end if;
+  end if;
+  if protect > 0 then
+    for e in select o.owner, w.name as pnm from wow_joint_ops_troops o
+               join wow_users w on w.id = o.owner
+              where o.op_id = op.id and o.troops <> '{}'::jsonb order by o.owner loop
+      if not (select w2.is_admin from wow_users w2 where w2.id = e.owner)
+         and _wow_points(e.owner) < protect then
+        raise exception '% está en protección de novatos: no puede atacar hasta superar % puntos. Retira sus tropas de la convocatoria.', coalesce(e.pnm,'Un miembro'), trunc(protect)::int;
+      end if;
+    end loop;
   end if;
   for e in select o.owner, o.troops from wow_joint_ops_troops o where o.op_id = op.id order by o.owner loop
     perform _wow_tick(e.owner);

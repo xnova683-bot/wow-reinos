@@ -322,7 +322,7 @@ grant execute on function public.wow_throne_withdraw(text, integer, jsonb) to an
 create or replace function public._wow_fort_info(p_uid text, p_kind text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare t wow_thrones; arr jsonb := '[]'::jsonb; g numeric; tr jsonb; fac text; hist jsonb;
-        ua text; lab text;
+        ua text; lab text; hp numeric; pk text; pn text; pr jsonb;
 begin
   ua := _wow_ally_of(p_uid);
   for t in select * from wow_thrones where kind = p_kind order by node loop
@@ -337,12 +337,23 @@ begin
     if t.holder is not null then select faction into fac from wow_users where id = t.holder; end if;
     lab := null;
     if t.holder_ally is not null then lab := _wow_ally_label(t.holder_ally); end if;
+    if t.holder is not null and t.holder <> '' then
+      hp := _wow_points(t.holder);
+      pk := 'holder';
+      pn := t.holder_name;
+    else
+      pr := _wow_node_protect(t.node);
+      hp := (pr->>'points')::numeric;
+      pk := pr->>'kind';
+      pn := pr->>'name';
+    end if;
     arr := arr || jsonb_build_object(
       'node', t.node, 'name', t.name, 'kind', t.kind,
       'holder', t.holder, 'holder_name', t.holder_name,
       'holder_ally', t.holder_ally, 'ally', lab, 'ally_icon', _wow_ally_icon(t.holder_ally),
       'faction', fac, 'mycontrib', _wow_contrib_get(t.node, p_uid), 'garrison', coalesce(g,0), 'gdetail', t.garrison, 'since', t.since_ms,
-      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist);
+      'mine', _wow_node_mine(t.holder, t.holder_ally, p_uid, ua), 'treasure', tr, 'history', hist,
+      'holder_points', hp, 'prot_kind', pk, 'prot_name', pn);
   end loop;
   return arr;
 end $$;
