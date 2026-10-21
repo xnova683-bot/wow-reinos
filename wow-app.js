@@ -2191,13 +2191,70 @@ Game.loadTavern = async function(){
       '<img src="img/taberna.jpg?v=1" alt="Taberna de Azeroth">' +
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
-          '<button disabled title="Próximamente">💃 Madam</button>' +
+          '<button id="tvMadam">💃 Madam</button>' +
           '<button disabled title="Próximamente">🗡️ Mercenarios</button>' +
           '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
-        '<div class="tvSoon">🍺 Próximamente…</div>' +
+        '<div class="tvSoon" id="tvSoon"></div>' +
       '</div>' +
     '</div>';
+  const mb = $("#tvMadam");
+  if(mb) mb.onclick = () => Game.openMadam();
+};
+
+Game.madamStories = [
+  { t: "El anillo de Sombraverde", s: "La Madam te recibe entre cortinas de terciopelo. Deja sobre la mesa un anillo de plata con una esmeralda oscura. «Lo gané apostando contra un noble de Ventormenta… pero él lo quiere de vuelta y manda matones cada noche. Si tus tropas me protegen, mis chicas marcharán contigo.»", a: "Aceptar el contrato", b: "Solo protegerla esta noche", c: "Guardar el anillo tú" },
+  { t: "El druida desterrado", s: "«Conocí a un druida que podía hablar con los lobos», murmura la Madam mientras sirve hidromiel. «Me enseñó un secreto: el miedo vuelve torpes a los soldados. El mío, en cambio, los vuelve letales. Cuarenta monedas y mis chicas susurrarán en tus campamentos.»", a: "Aceptar el contrato", b: "Pedirle solo el secreto", c: "Marcharte sin más" },
+  { t: "La promesa de Sylvanas", s: "Una carta sellada con cera negra reposa en la barra. «La Dama Oscura me debe un favor», dice la Madam. «Un contrato conmigo es un contrato con ella. Tus enemigos lo pensarán dos veces antes de alzar la espada.»", a: "Aceptar el contrato", b: "Leer la carta a escondidas", c: "Devolver la carta" },
+  { t: "El baile de las cuchillas", s: "En el piso de arriba, una docena de mujeres entrenan con dagas al ritmo de un laúd. La Madam sonríe: «No son solo hermosas; son mortales. Ponlas a tu lado y cada golpe de tus tropas tendrá un filo extra.»", a: "Aceptar el contrato", b: "Apostar una pelea de exhibición", c: "Marcharte" },
+  { t: "El general sin ejército", s: "«Un general lo perdió todo en una sola batalla», cuenta la Madam, «pero me enseñó que la moral importa más que el acero. Mis chicas levantan la moral allá donde van. Tu tropa peleará como si fueran diez y no una.»", a: "Aceptar el contrato", b: "Escuchar solo la historia", c: "Rechazar" },
+  { t: "El mapa de Kalimdor", s: "La Madam desenrolla un mapa manchado de vino. «Hay rutas que nadie vigila, pozos donde el agua sabe a hierro. Conmigo, tus marchas nunca serán emboscadas… y tus ataques, siempre certeros.»", a: "Aceptar el contrato", b: "Copiar el mapa", c: "Ignorarlo" },
+  { t: "El hijo del barón", s: "«El hijo de un barón viene cada noche a llorar por una cantante», dice la Madam con desdén. «Su padre guarda rencor. Si me contratas, él te dará información valiosa sobre tus rivales. Los reyes escuchan; las cortesanas, más.»", a: "Aceptar el contrato", b: "Chantajear al barón", c: "Marcharte" },
+  { t: "El collar de rubíes", s: "La Madam abre un cofre: un collar de rubíes que gotea luz. «Fue de una reina que traicionó a su reino. Yo lo guardo como recuerdo de que la lealtad se compra… y se vende. ¿Cuánto vale la tuya?»", a: "Aceptar el contrato", b: "Intentar robarlo", c: "Cerrar el cofre" },
+  { t: "La apuesta del capitán", s: "Un capitán borracho reta a la Madam a los dados. Ella gana sin mirar. «La suerte me sigue», dice. «Y mientras estés conmigo, seguirá tu estandarte. Mis chicas y yo… traemos buena fortuna al combate.»", a: "Aceptar el contrato", b: "Apostar tú también", c: "Retirarte" },
+  { t: "El juramento de la taberna", s: "Cuando el último cliente se marcha, la Madam apaga las velas y habla en serio. «He visto caer imperios desde esta barra. Lo único que nunca muere es la lealtad de quien paga bien. Cuarenta monedas, treinta días, mis chicas a tu lado.»", a: "Aceptar el contrato", b: "Negociar el precio", c: "Apagar las velas tú" }
+];
+
+Game.openMadam = async function(){
+  let r;
+  try{ r = await sbRpc("wow_madam_info", { p_token: this.me.token }); }
+  catch(e){ toast(e.message, true); return; }
+  const cost = Number(r.cost), days = Number(r.days);
+  const active = r.active === true;
+  const remain = Number(r.remain_ms || 0);
+  const dias = Math.floor(remain / 86400000), horas = Math.floor((remain % 86400000) / 3600000);
+  if(!this._madamSeen){ this._madamSeen = []; }
+  let pool = Game.madamStories.map((_, i) => i).filter(i => this._madamSeen.indexOf(i) < 0);
+  if(!pool.length){ this._madamSeen = []; pool = Game.madamStories.map((_, i) => i); }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  this._madamSeen.push(pick);
+  const st = Game.madamStories[pick];
+  const estados = active
+    ? '<div class="mLin">Contrato <b>activo</b> · <b>+' + r.bonus + '</b> de ataque por tropa · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
+    : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días</div>';
+  const btn = active ? ('Renovar por ' + cost + ' CUP') : ('Contratar por ' + cost + ' CUP');
+  modal(
+    '<h3 style="margin:0 0 8px">💃 La Madam</h3>' +
+    estados +
+    '<div style="margin:12px 0;line-height:1.5"><b>' + esc(st.t) + '</b><br><span style="opacity:.9">' + esc(st.s) + '</span></div>' +
+    '<div style="display:flex;flex-direction:column;gap:8px">' +
+      '<button class="btn" id="mdHire">' + esc(st.a) + ' <span style="opacity:.7">(' + btn + ')</span></button>' +
+      '<button class="btn sm" id="mdB" disabled title="Próximamente">' + esc(st.b) + '</button>' +
+      '<button class="btn sm" id="mdC" disabled title="Próximamente">' + esc(st.c) + '</button>' +
+    '</div>' +
+    '<div style="text-align:center;margin-top:10px;opacity:.6;font-size:12px">Otros caminos, próximamente…</div>'
+  );
+  const hb = $("#mdHire");
+  if(hb) hb.onclick = async () => {
+    hb.disabled = true;
+    try{
+      const hr = await sbRpc("wow_madam_hire", { p_token: Game.me.token });
+      toast("💃 La Madam acepta. +" + hr.bonus + " de ataque durante " + days + " días.");
+      if(Game.me) Game.me.cup = hr.cup;
+      modalClose();
+      Game.loadTavern && Game.loadTavern();
+    }catch(e){ toast(e.message, true); hb.disabled = false; }
+  };
 };
 Game.thrEvent = function(h, kind){
   const who = esc(h.actor_name || "?");
