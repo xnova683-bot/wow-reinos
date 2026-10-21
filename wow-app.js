@@ -1193,6 +1193,10 @@ const Game = {
       ${this.vaultHtml(v)}
       <div class="secTitle">🤝 Diplomacia</div>
       <div id="diploBox" class="warsBox"></div>
+      <div class="secTitle">⚔️ Ataques conjuntos</div>
+      <p class="hint" style="margin:0 0 8px">Convoca un ataque, aporta tus tropas y salís todos a la vez: una sola batalla con el ejército unido y el botín repartido según lo que aporta cada miembro.</p>
+      <div style="margin-bottom:8px"><button class="btn sm" id="jointNew">🚩 Convocar ataque</button></div>
+      <div id="jointBox" class="jointBox"></div>
       <div class="secTitle">💬 Chat de la alianza</div>
       <div id="chatMsgs" class="chatBox"></div>
       <div class="chatRow"><input id="chatIn" placeholder="Escribe a tu alianza…" maxlength="300"><button class="btn sm" id="chatSend">Enviar</button></div>
@@ -1209,10 +1213,221 @@ const Game = {
     $("#chatSend").onclick = () => this.sendChat();
     $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
     $("#allyLeave").onclick = () => this.leaveAlly(info.name);
+    const jn = document.getElementById("jointNew"); if(jn) jn.onclick = () => this.openJointNew();
     await this.loadDiplo();
+    await this.loadJoint();
     await this.loadChat();
     await this.loadAllyRank("#allyRank");
     this.startChatPoll();
+  },
+  async loadJoint(){
+    const box = document.getElementById("jointBox");
+    if(!box) return;
+    let ops = [];
+    try{ ops = await sbRpc("wow_joint_list", { p_token: this.me.token }) || []; }
+    catch(e){ box.innerHTML = '<div class="empty" style="padding:12px">No se pudieron cargar las convocatorias.</div>'; return; }
+    if(!ops.length){
+      box.innerHTML = '<div class="empty" style="padding:12px">No hay ninguna convocatoria. ¡Sé el primero en convocar un ataque conjunto!</div>';
+      return;
+    }
+    const myId = this.me.id;
+    const badge = { open:'🟢 Abierta', launched:'⚔️ En marcha', done:'✅ Terminada', cancelled:'✖ Cancelada', expired:'⌛ Caducada' };
+    const ic = { reino:'🏰', trono:'🏯', aldea:'🏘️' };
+    box.innerHTML = ops.map(o => {
+      const parts = o.parts || [];
+      const mine = parts.some(p => p.owner === myId);
+      const isLeader = o.leader === myId;
+      const left = Math.max(0, Number(o.deadline || 0) - Date.now());
+      let when = "";
+      if(o.status === "open"){
+        when = o.expired ? '<span style="color:#e07a7a">⏱ Caducada</span>'
+          : '⏱ Quedan ' + Math.floor(left / 3600000) + 'h ' + Math.floor(left % 3600000 / 60000) + 'min';
+      }else if(o.status === "launched") when = '⚔️ En marcha';
+      else when = '🏁 Convocada ' + hora(o.created);
+      const rows = parts.map(p =>
+        '<div class="jointPart"><span class="pn">' + (p.owner === myId ? "👤 " : "") + esc(p.name) + '</span>' +
+        '<span class="pt">' + this.tlabel(p.troops) + ' · <b>' + un(p.total) + '</b></span></div>').join("");
+      const btns = [];
+      if(o.status === "open" && !o.expired){
+        btns.push('<button class="btn sm" data-jjoin="' + o.id + '">' + (mine ? "✏️ Cambiar tropas" : "🛡️ Aportar tropas") + '</button>');
+        if(mine) btns.push('<button class="btn sm" data-jleave="' + o.id + '">↩️ Retirarme</button>');
+        if(isLeader) btns.push('<button class="btn sm" data-jlaunch="' + o.id + '">⚔️ Lanzar ataque</button>');
+        if(isLeader) btns.push('<button class="btn sm danger" data-jcancel="' + o.id + '">✖ Cancelar</button>');
+      }
+      if(o.status === "launched" || o.status === "done") btns.push('<button class="btn sm" data-jinfo="' + o.id + '">📜 Ver informe</button>');
+      return '<div class="jointCard ' + esc(o.status) + '">' +
+        '<div class="jointTop"><span class="jointT">' + (ic[o.target_kind] || "⚔️") + ' ' + esc(o.target_name || "Objetivo") + '</span>' +
+        '<span class="jointBadge">' + (badge[o.status] || esc(o.status)) + '</span>' +
+        '<span class="jointMeta">' + when + '</span></div>' +
+        '<div class="jointMeta">Convoca ' + esc(o.leader_name || "") + ' · ejército unido de ' + un(o.total) + ' tropas</div>' +
+        '<div class="jointParts">' + (rows || '<div class="jointMeta">Nadie ha aportado tropas todavía.</div>') + '</div>' +
+        '<div class="jointBtns">' + btns.join("") + '</div></div>';
+    }).join("");
+    const find = id => ops.find(o => String(o.id) === String(id));
+    box.querySelectorAll("[data-jjoin]").forEach(b => { b.onclick = () => this.openJointJoin(find(b.dataset.jjoin)); });
+    box.querySelectorAll("[data-jleave]").forEach(b => { b.onclick = () => this.jointLeave(find(b.dataset.jleave)); });
+    box.querySelectorAll("[data-jlaunch]").forEach(b => { b.onclick = () => this.jointLaunch(find(b.dataset.jlaunch)); });
+    box.querySelectorAll("[data-jcancel]").forEach(b => { b.onclick = () => this.jointCancel(find(b.dataset.jcancel)); });
+    box.querySelectorAll("[data-jinfo]").forEach(b => { b.onclick = () => this.jointInfo(find(b.dataset.jinfo)); });
+  },
+  tlabel(t){
+    const o = t || {};
+    const ks = ["soldado","arquero","jinete","mago","paladin","dragon"].filter(k => Number(o[k]) > 0);
+    if(!ks.length) return "sin tropas";
+    return ks.map(k => un(o[k]) + " " + String((TRP[k] || {}).n || k).toLowerCase()).join(", ");
+  },
+  async openJointNew(){
+    try{
+      if(!this.mapList || !this.mapList.length) this.mapList = await sbRpc("wow_map", { p_token: this.me.token }) || [];
+      if(!this._thrones){ const t = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = (t && t.thrones) || []; }
+      if(!this._aldeas){ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this._aldeas = (a && a.aldeas) || []; }
+    }catch(e){}
+    const al = this._allyInfo || {};
+    const realms = (this.mapList || []).filter(r => !r.me && r.id !== this.me.id && !(r.alliance && (r.alliance === al.tag || r.alliance === al.name)));
+    const thrones = (this._thrones || []).filter(t => t.holder_ally !== al.id);
+    const aldeas = (this._aldeas || []).filter(a => a.holder_ally !== al.id);
+    const oRealm = realms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + (r.alliance ? " [" + esc(r.alliance) + "]" : "") + '</option>').join("");
+    const oThrone = thrones.map(t => '<option value="' + t.node + '">' + esc(t.name) + ' · guarnición ' + un(t.garrison || 0) + '</option>').join("");
+    const oAldea = aldeas.map(a => '<option value="' + a.node + '">' + esc(a.name) + ' · guarnición ' + un(a.garrison || 0) + '</option>').join("");
+    modal(`<h2 style="margin-top:0;color:var(--gold)">🚩 Convocar ataque conjunto</h2>
+      <p style="color:var(--dim);font-size:13px">Se unen las tropas de la alianza contra un objetivo común: una sola batalla con el ejército unido y el botín repartido en proporción a lo que aporta cada miembro.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:3px">🎯 Objetivo
+          <select id="jKind"><option value="reino">Reino enemigo</option><option value="trono">Trono</option><option value="aldea">Aldea</option></select></label>
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:3px" id="jRowR">🌍 Reino
+          <select id="jRealm">${oRealm || '<option value="">No hay reinos atacables</option>'}</select></label>
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:3px hidden" id="jRowT">🏯 Trono
+          <select id="jThrone">${oThrone || '<option value="">No hay tronos libres</option>'}</select></label>
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:3px hidden" id="jRowA">🏘️ Aldea
+          <select id="jAldea">${oAldea || '<option value="">No hay aldeas libres</option>'}</select></label>
+      </div>
+      <p style="color:var(--dim);font-size:12px;margin-top:10px">⏱ La convocatoria dura 24 horas. Las tropas no se reservan: se descuentan de tu cuartel al lanzar el ataque, y si no tienes suficientes se manda lo que haya.</p>
+      <div style="text-align:center;margin-top:14px"><button class="btn" id="jGo">🚩 Convocar</button></div>`);
+    const kind = document.getElementById("jKind");
+    const sync = () => {
+      const k = kind.value;
+      document.getElementById("jRowR").classList.toggle("hidden", k !== "reino");
+      document.getElementById("jRowT").classList.toggle("hidden", k !== "trono");
+      document.getElementById("jRowA").classList.toggle("hidden", k !== "aldea");
+    };
+    kind.onchange = sync;
+    sync();
+    const go = document.getElementById("jGo");
+    if(go) go.onclick = () => this.jointCreate();
+  },
+  async jointCreate(){
+    const k = document.getElementById("jKind").value;
+    let target = null, node = null;
+    if(k === "reino"){
+      target = document.getElementById("jRealm").value;
+      if(!target) return toast("Elige un reino objetivo.", true);
+    }else{
+      const el = document.getElementById(k === "trono" ? "jThrone" : "jAldea");
+      node = Number(el.value) || 0;
+      if(!node) return toast("Elige un lugar.", true);
+    }
+    try{
+      const r = await sbRpc("wow_joint_open", { p_token: this.me.token, p_target_kind: k, p_target: target, p_node: node });
+      modalClose();
+      toast("🚩 Convocatoria abierta contra " + (r.target || "") + ". Tienes 24 h para aportar tropas.");
+      await this.loadJoint();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  openJointJoin(o){
+    if(!o) return;
+    const troops = ((this.st && this.st.troops) || []).filter(t => t.qty > 0);
+    if(!troops.length){
+      modal(`<h2 style="margin-top:0;color:var(--gold)">🛡️ Aportar tropas</h2>
+        <p style="color:var(--dim)">No tienes tropas. Entrena en el Cuartel (pestaña ⚔️ Tropas) antes de aportar.</p>`);
+      return;
+    }
+    const rows = troops.map(t => {
+      const m = TRP[t.key] || { e: "⚔️", n: t.key };
+      return `<div class="atkRow"><span class="an">${m.e || "⚔️"} ${m.n}</span><span class="amax">de ${un(t.qty)}</span>
+        <input id="jq_${t.key}" type="number" min="0" max="${t.qty}" value="0" inputmode="numeric">
+        <button class="btn sm" data-jmax="${t.key}">MAX</button></div>`;
+    }).join("");
+    const cur = ((o.parts || []).find(p => p.owner === this.me.id) || {}).troops || {};
+    modal(`<h2 style="margin-top:0;color:var(--gold)">🛡️ Aportar tropas a ${esc(o.target_name || "")}</h2>
+      <p style="color:var(--dim);font-size:13px">Elige cuántas tropas aportar. Se descontarán al lanzar el ataque y el botín se repartirá en proporción a lo que aporte cada miembro.</p>
+      ${rows}
+      <div style="text-align:center;margin-top:14px"><button class="btn" id="jqGo">🛡️ Confirmar aporte</button></div>`);
+    document.querySelectorAll('#modalBox input[id^="jq_"]').forEach(inp => { inp.value = Number(cur[inp.id.slice(3)]) || 0; });
+    document.querySelectorAll('#modalBox button[data-jmax]').forEach(b => {
+      b.onclick = () => {
+        const inp = document.getElementById("jq_" + b.dataset.jmax);
+        if(inp) inp.value = Number(inp.max) || 0;
+      };
+    });
+    const go = document.getElementById("jqGo");
+    if(go) go.onclick = () => this.jointJoin(o);
+  },
+  async jointJoin(o){
+    const payload = {};
+    document.querySelectorAll('#modalBox input[id^="jq_"]').forEach(inp => {
+      const k = inp.id.slice(3);
+      const v = Math.max(0, parseInt(inp.value, 10) || 0);
+      if(v > 0) payload[k] = v;
+    });
+    if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
+    try{
+      await sbRpc("wow_joint_join", { p_token: this.me.token, p_op: o.id, p_troops: payload });
+      modalClose();
+      toast("🛡️ Tropas aportadas. Ya pueden lanzar el ataque.");
+      await this.loadJoint();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async jointLeave(o){
+    if(!o || !confirm("¿Retirar tus tropas del ataque conjunto?")) return;
+    try{
+      await sbRpc("wow_joint_leave", { p_token: this.me.token, p_op: o.id });
+      toast("Te has retirado del ataque conjunto.");
+      await this.loadJoint();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async jointLaunch(o){
+    if(!o) return;
+    if(!confirm("¿Lanzar el ataque conjunto contra " + (o.target_name || "") + "?\n\nSe descontarán del cuartel las tropas aportadas por cada miembro.")) return;
+    try{
+      const r = await sbRpc("wow_joint_launch", { p_token: this.me.token, p_op: o.id });
+      toast("⚔️ ¡Ataque conjunto en marcha! Llega en " + tfmt(r.travel) + ".");
+      await this.loadJoint();
+      await this.refresh();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async jointCancel(o){
+    if(!o || !confirm("¿Cancelar la convocatoria de ataque conjunto?")) return;
+    try{
+      await sbRpc("wow_joint_cancel", { p_token: this.me.token, p_op: o.id });
+      toast("Convocatoria cancelada.");
+      await this.loadJoint();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async jointInfo(o){
+    if(!o) return;
+    let info = null;
+    try{ info = await sbRpc("wow_joint_info", { p_token: this.me.token, p_op: o.id }); }
+    catch(e){ toast(shortMsg(e), true); return; }
+    if(!info) return;
+    const parts = (info.parts || []).map(p =>
+      '<div class="jointPart"><span class="pn">' + esc(p.name) + '</span>' +
+      '<span class="pt">' + this.tlabel(p.troops) + ' · <b>' + un(p.total) + '</b></span></div>').join("");
+    const reps = (info.reports || []).map(r => {
+      const rep = r.report || {};
+      const l = rep.loot || {};
+      const tot = (Number(l.gold) || 0) + (Number(l.wood) || 0) + (Number(l.ore) || 0) + (Number(l.cup) || 0);
+      const loot = tot > 0 ? "Botín: 💰" + dec(l.gold) + " 🪵" + dec(l.wood) + " ⛏️" + dec(l.ore) + (l.cup ? " 🍺" + dec(l.cup) : "") + ". " : "";
+      const res = rep.win ? '<b style="color:var(--green)">Victoria</b>' : '<b style="color:#e07a7a">Derrota</b>';
+      const back = rep.troops && Object.keys(rep.troops).length ? "Regresaron: " + this.tlabel(rep.troops) + ". " : "";
+      return '<div class="rep ' + (rep.win ? "win" : "lose") + '"><div>' + esc(r.name) + ' · ' + res + '</div>' +
+        '<div class="rl">' + loot + back + (rep.pct != null ? "Parte del botín: " + dec(rep.pct) + "%. " : "") + '</div></div>';
+    }).join("");
+    modal(`<h2 style="margin-top:0;color:var(--gold)">📜 ${esc(info.target_name || "")}</h2>
+      <p style="color:var(--dim);font-size:13px">Estado: ${esc(info.status)} · convocante: ${esc(info.leader_name || "")}</p>
+      <div class="secSub">Ejército unido</div>
+      <div class="jointParts">${parts || '<div class="jointMeta">Sin tropas.</div>'}</div>
+      <div class="secSub">Informes por miembro</div>
+      ${reps || '<div class="muted">Todavía no hay informes de esta convocatoria.</div>'}`);
   },
   renderEmblem(info){
     const box = document.getElementById("embBox"); if(!box) return;
