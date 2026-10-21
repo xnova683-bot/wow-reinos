@@ -68,20 +68,30 @@ language sql stable set search_path to 'public' as $$
   select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='madam_admin_pct'),0)));
 $$;
 
--- reparte a los nodos ocupados: cada nodo toma su % segun su tipo (trono/aldea)
+-- reparte el resto (p_base) entre los nodos ocupados, proporcional a los %
+-- de fortalezas y aldeas (total repartido = p_base; nunca crea CUP).
 create or replace function public._wow_tavern_distribute(p_base numeric, p_key text)
 returns numeric language plpgsql security definer set search_path to 'public' as $$
-declare pt numeric; pa numeric; tt record; share numeric; total numeric := 0;
+declare pt numeric; pa numeric; w numeric; nt integer; na integer; pool_t numeric; pool_a numeric;
+        per_t numeric; per_a numeric; tt record; total numeric := 0;
 begin
   if coalesce(p_base,0) <= 0 then return 0; end if;
   pt := _wow_tavern_pct_trono();
   pa := _wow_tavern_pct_aldea();
+  w := pt + pa;
+  if w <= 0 then return 0; end if;
+  select count(*) filter (where _wow_node_kind(node) = 'aldea'),
+         count(*) filter (where _wow_node_kind(node) <> 'aldea')
+    into na, nt from wow_thrones where holder is not null;
+  pool_t := round(p_base * pt / w, 2);
+  pool_a := round(p_base * pa / w, 2);
+  per_t := case when nt > 0 then round(pool_t / nt, 2) else 0 end;
+  per_a := case when na > 0 then round(pool_a / na, 2) else 0 end;
   for tt in select node, _wow_node_kind(node) kind from wow_thrones where holder is not null order by node for update loop
-    if tt.kind = 'aldea' then share := round(p_base * pa / 100.0, 2);
-    else share := round(p_base * pt / 100.0, 2); end if;
-    if share > 0 then
-      perform _wow_throne_add(tt.node, p_key, share);
-      total := total + share;
+    if tt.kind = 'aldea' then
+      if per_a > 0 then perform _wow_throne_add(tt.node, p_key, per_a); total := total + per_a; end if;
+    else
+      if per_t > 0 then perform _wow_throne_add(tt.node, p_key, per_t); total := total + per_t; end if;
     end if;
   end loop;
   return total;

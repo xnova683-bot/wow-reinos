@@ -1735,8 +1735,9 @@ const Game = {
         '<label>% para las fortalezas<input id="adMdmTrono" type="number" min="0" max="100" step="0.01" value="' + dec(m.pct_trono != null ? m.pct_trono : 1) + '"></label>' +
         '<label>% para las aldeas<input id="adMdmAldea" type="number" min="0" max="100" step="0.01" value="' + dec(m.pct_aldea != null ? m.pct_aldea : 0.3) + '"></label>' +
       '</div>' +
+      '<p class="hint" style="margin-top:6px">Los dos % son el <b>peso</b> con que el resto se reparte entre fortalezas y aldeas (proporción). No hace falta que sumen 100.</p>' +
       '<p class="hint" style="margin-top:8px">Mientras el contrato esté activo, todas las tropas del reino reciben el bonus de ataque (atacando y defendiendo). · Contratos activos ahora: <b>' + un((this.madam && this.madam.active_n) || 0) + '</b> · Total recaudado: <b>' + un((this.madam && this.madam.earned) || 0) + ' CUP</b>.</p>' +
-      '<p class="hint">De cada contrato: el <b>% del admin</b> se ingresa como CUP en el reino del administrador; el <b>resto</b> se reparte automáticamente entre los tronos y aldeas ocupados: cada fortaleza recibe el <b>% fortalezas</b> del resto y cada aldea el <b>% aldeas</b> del resto.</p>' +
+      '<p class="hint">De cada contrato: el <b>% del admin</b> va como CUP al reino del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, en proporción a estos % (p.ej. 60 y 20 → los tronos se llevan el 75% del resto y las aldeas el 25%). El total repartido nunca supera lo pagado; el importe sale marcado como recaudado.</p>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="adMdmGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos</h3>' +
