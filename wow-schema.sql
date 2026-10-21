@@ -6366,6 +6366,12 @@ returns numeric language sql stable set search_path to 'public' as $$
     else 0 end;
 $$;
 
+-- total de CUP recaudado por la Madam desde siempre
+create or replace function public._wow_madam_earned() returns numeric
+language sql stable set search_path to 'public' as $$
+  select coalesce((select val::numeric from wow_settings where key='madam_earned'),0);
+$$;
+
 -- estado del contrato del reino
 create or replace function public.wow_madam_info(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
@@ -6378,7 +6384,7 @@ begin
   select * into c from wow_tavern_contracts where owner = u.id;
   return jsonb_build_object('ok', true,
     'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(),
-    'cup', u.cup,
+    'cup', u.cup, 'earned', _wow_madam_earned(),
     'active', (c.owner is not null and c.until_ms > ms),
     'until', coalesce(c.until_ms, 0),
     'remain_ms', greatest(0, coalesce(c.until_ms,0) - ms));
@@ -6402,6 +6408,8 @@ begin
   base := greatest(ms, coalesce(c.until_ms,0));
   until_ms := base + (_wow_madam_days()*86400000)::bigint;
   update wow_users set cup = cup - cost where id = u.id;
+  insert into wow_settings(key,val) values ('madam_earned', cost::text)
+    on conflict (key) do update set val = (coalesce(wow_settings.val::numeric,0) + cost)::text;
   insert into wow_tavern_contracts(owner, bonus, until_ms, created)
     values (u.id, _wow_madam_bonusth(), until_ms, ms)
     on conflict (owner) do update set bonus = excluded.bonus, until_ms = excluded.until_ms;
@@ -6869,7 +6877,7 @@ begin
   a := _wow_admin(p_token);
   perform _wow_resolve();
   ms := (extract(epoch from now())*1000)::bigint;
-  select jsonb_build_object('now', ms, 'me', a.id, 'prod_mult', _wow_prod_global(), 'madam', jsonb_build_object('cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'active_n', (select count(*) from wow_tavern_contracts where until_ms > ms)), 'users', coalesce((
+  select jsonb_build_object('now', ms, 'me', a.id, 'prod_mult', _wow_prod_global(), 'madam', jsonb_build_object('cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'active_n', (select count(*) from wow_tavern_contracts where until_ms > ms), 'earned', _wow_madam_earned()), 'users', coalesce((
     select jsonb_agg(jsonb_build_object(
       'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos,
       'active', w.active, 'is_admin', w.is_admin,
