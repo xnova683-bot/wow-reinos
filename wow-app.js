@@ -1734,7 +1734,10 @@ const Game = {
       '</div>' +
       '<p class="hint" style="margin-top:8px">Mientras el contrato esté activo, todas las tropas del reino reciben el bonus de ataque (atacando y defendiendo). · Contratos activos ahora: <b>' + un((this.madam && this.madam.active_n) || 0) + '</b> · Total recaudado: <b>' + un((this.madam && this.madam.earned) || 0) + ' CUP</b>.</p>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="adMdmGo">Guardar</button></div>' +
-      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
+      '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos</h3>' +
+      '<div id="adMdmList" class="admList">Cargando…</div>');
+    this._loadMadamContracts();
     $("#adMdmGo").onclick = async () => {
       const cost = Number($("#adMdmCost").value);
       const days = Number($("#adMdmDays").value);
@@ -1745,10 +1748,26 @@ const Game = {
       $("#adMdmGo").disabled = true;
       try{
         const r = await sbRpc("wow_admin_setmadam", { p_token: this.me.token, p_cost: cost, p_days: days, p_bonus: bonus });
-        this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, active_n: (this.madam && this.madam.active_n) || 0 };
+        this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, active_n: (this.madam && this.madam.active_n) || 0, earned: (this.madam && this.madam.earned) || 0 };
         modalClose(); toast("🍺 Precios de la taberna guardados."); this.loadAdmin();
       }catch(e){ $("#adMdmGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
+  },
+  async _loadMadamContracts(){
+    const box = $("#adMdmList"); if(!box) return;
+    try{
+      const r = await sbRpc("wow_admin_madam_contracts", { p_token: this.me.token });
+      const cs = (r && r.contracts) || [];
+      if(!cs.length){ box.innerHTML = '<p class="empty">Ningún reino tiene el contrato activo.</p>'; return; }
+      const d2 = ms => { const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), mi = Math.floor((ms % 3600000) / 60000); return d + 'd ' + h + 'h ' + mi + 'm'; };
+      box.innerHTML = cs.map(c =>
+        '<div class="admRow" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="flex:1;min-width:120px">' + (c.faction === "alianza" ? "🔵" : "🔴") + ' <b>' + esc(c.name) + '</b>' +
+            (c.alliance ? ' <span class="admTag">[' + esc(c.alliance) + ']</span>' : '') + '</span>' +
+          '<span style="color:var(--green)">💃 +' + un(c.bonus) + ' ATK</span>' +
+          '<span style="opacity:.8">⏳ ' + d2(c.remain_ms) + '</span>' +
+        '</div>').join("");
+    }catch(e){ box.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; }
   },
   admProdUser(u){
     const g = (this.prodMult != null) ? Number(this.prodMult) : 1;

@@ -553,6 +553,26 @@ end $$;
 revoke all on function public.wow_admin_setmadam(text, numeric, numeric, numeric) from public;
 grant execute on function public.wow_admin_setmadam(text, numeric, numeric, numeric) to anon, authenticated;
 
+-- reinos con contrato de la Madam activo ahora
+create or replace function public.wow_admin_madam_contracts(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; ms bigint;
+begin
+  a := _wow_admin(p_token);
+  ms := (extract(epoch from now())*1000)::bigint;
+  return jsonb_build_object('ok', true, 'now', ms, 'contracts', coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', c.owner, 'name', u.name, 'faction', u.faction,
+      'alliance', coalesce((select tag from wow_alliances where id = u.alliance),''),
+      'bonus', c.bonus, 'until', c.until_ms, 'remain_ms', greatest(0, c.until_ms - ms)
+    ) order by c.until_ms desc)
+    from wow_tavern_contracts c join wow_users u on u.id = c.owner
+    where c.until_ms > ms
+  ), '[]'));
+end $$;
+revoke all on function public.wow_admin_madam_contracts(text) from public;
+grant execute on function public.wow_admin_madam_contracts(text) to anon, authenticated;
+
 -- lista de reinos para el admin (override): incluye los precios de la taberna
 create or replace function public.wow_admin_list(p_token text)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
