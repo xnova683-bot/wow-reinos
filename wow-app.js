@@ -2232,7 +2232,7 @@ Game.openMadam = async function(){
   const estados = active
     ? '<div class="mLin">Contrato <b>activo</b> · <b>+' + r.bonus + '</b> de ataque por tropa · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
     : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días</div>';
-  const btn = active ? ('Renovar por ' + cost + ' CUP') : ('Contratar por ' + cost + ' CUP');
+  const btn = 'Contratar mis chicas +1 ATK <span style="opacity:.7">· ' + cost + ' CUP</span>';
   modal(
     '<h3 style="margin:0 0 8px">💃 La Madam</h3>' +
     estados +
