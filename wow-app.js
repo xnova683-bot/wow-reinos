@@ -1245,7 +1245,7 @@ const Game = {
       }else if(o.status === "launched") when = '⚔️ En marcha';
       else when = '🏁 Convocada ' + hora(o.created);
       const rows = parts.map(p =>
-        '<div class="jointPart"><span class="pn">' + (p.owner === myId ? "👤 " : "") + (p.bot ? "🤖 " : "") + esc(p.name) + '</span>' +
+        '<div class="jointPart"><span class="pn">' + (p.owner === myId ? "👤 " : "") + esc(p.name) + '</span>' +
         '<span class="pt">' + this.tlabel(p.troops) + ' · <b>' + un(p.total) + '</b></span></div>').join("");
       const btns = [];
       if(o.status === "open" && !o.expired){
@@ -1410,7 +1410,7 @@ const Game = {
     catch(e){ toast(shortMsg(e), true); return; }
     if(!info) return;
     const parts = (info.parts || []).map(p =>
-      '<div class="jointPart"><span class="pn">' + (p.bot ? "🤖 " : "") + esc(p.name) + '</span>' +
+      '<div class="jointPart"><span class="pn">' + esc(p.name) + '</span>' +
       '<span class="pt">' + this.tlabel(p.troops) + ' · <b>' + un(p.total) + '</b></span></div>').join("");
     const reps = (info.reports || []).map(r => {
       const rep = r.report || {};

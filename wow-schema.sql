@@ -7285,15 +7285,13 @@ end ;
 $$;
 revoke all on function public._wow_joint_throne_loot(bigint,integer,text,jsonb,boolean) from public;
 
-drop function if exists public.wow_joint_open(text,text,text,integer);
-create or replace function wow_joint_open(p_token text, p_target_kind text, p_target text, p_node integer, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_open(p_token text, p_target_kind text, p_target text, p_node integer) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
-declare u wow_users; t wow_users; th wow_thrones; ms bigint; op_id bigint; tk text; tn text; pfx text;
+declare u wow_users; t wow_users; th wow_thrones; ms bigint; op_id bigint; tk text; tn text;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   if u.alliance is null then raise exception 'Necesitas una alianza para convocar un ataque conjunto.'; end if;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   tk := lower(coalesce(p_target_kind,''));
   if tk not in ('reino','trono','aldea') then raise exception 'Objetivo inválido.'; end if;
   ms := (extract(epoch from now())*1000)::bigint;
@@ -7319,22 +7317,20 @@ begin
     returning id into op_id;
   insert into wow_chat(alliance, user_id, name, msg, created)
     values (u.alliance, u.id, u.name,
-      pfx || '⚔️ ' || u.name || ' ha convocado un ataque conjunto contra ' || tn || '. ¡Aportad vuestras tropas!', ms);
+      '⚔️ ' || u.name || ' ha convocado un ataque conjunto contra ' || tn || '. ¡Aportad vuestras tropas!', ms);
   return jsonb_build_object('ok',true,'id',op_id,'target',tn,'deadline',ms + 86400000);
 end ;
 $$;
-revoke all on function public.wow_joint_open(text,text,text,integer,boolean) from public;
-grant execute on function public.wow_joint_open(text,text,text,integer,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_open(text,text,text,integer) from public;
+grant execute on function public.wow_joint_open(text,text,text,integer) to anon, authenticated;
 
-drop function if exists public.wow_joint_join(text,bigint,jsonb);
-create or replace function wow_joint_join(p_token text, p_op bigint, p_troops jsonb, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_join(p_token text, p_op bigint, p_troops jsonb) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
-declare u wow_users; op wow_joint_ops; ms bigint; army jsonb; z record; avail int; pfx text;
+declare u wow_users; op wow_joint_ops; ms bigint; army jsonb; z record; avail int;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   ms := (extract(epoch from now())*1000)::bigint;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   select * into op from wow_joint_ops where id = p_op;
   if op.id is null then raise exception 'Esa convocatoria no existe.'; end if;
   if op.status <> 'open' then raise exception 'Esta convocatoria ya no está abierta.'; end if;
@@ -7351,12 +7347,12 @@ begin
   insert into wow_joint_ops_troops(op_id, owner, troops, joined_ms) values (op.id, u.id, army, ms)
     on conflict (op_id, owner) do update set troops = excluded.troops, joined_ms = excluded.joined_ms;
   insert into wow_chat(alliance, user_id, name, msg, created)
-    values (op.alliance, u.id, u.name, pfx || '🛡️ ' || u.name || ' aporta ' || _wow_joint_tlabel(army) || ' al ataque conjunto.', ms);
+    values (op.alliance, u.id, u.name, '🛡️ ' || u.name || ' aporta ' || _wow_joint_tlabel(army) || ' al ataque conjunto.', ms);
   return jsonb_build_object('ok',true,'troops',army);
 end ;
 $$;
-revoke all on function public.wow_joint_join(text,bigint,jsonb,boolean) from public;
-grant execute on function public.wow_joint_join(text,bigint,jsonb,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_join(text,bigint,jsonb) from public;
+grant execute on function public.wow_joint_join(text,bigint,jsonb) to anon, authenticated;
 
 create or replace function wow_joint_leave(p_token text, p_op bigint) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
@@ -7393,19 +7389,17 @@ $$;
 revoke all on function public.wow_joint_cancel(text,bigint) from public;
 grant execute on function public.wow_joint_cancel(text,bigint) to anon, authenticated;
 
-drop function if exists public.wow_joint_launch(text,bigint);
-create or replace function wow_joint_launch(p_token text, p_op bigint, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_launch(p_token text, p_op bigint) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
 declare
   u wow_users; op wow_joint_ops; t wow_users; th wow_thrones;
-  ms bigint; z record; e record; pfx text;
+  ms bigint; z record; e record;
   sent jsonb; actual jsonb := '{}'::jsonb; comb jsonb := '{}'::jsonb;
   travel integer; avail int; take int; protect numeric; got boolean := false;
   tname text; lab text;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   perform _wow_resolve();
   u := _wow_tick(u.id);
   ms := (extract(epoch from now())*1000)::bigint;
@@ -7470,12 +7464,12 @@ begin
   perform _wow_event('alliance', '⚔️ Ataque conjunto de ' || coalesce(nullif(lab,''),'una alianza') || ' contra ' || tname || '.');
   insert into wow_chat(alliance, user_id, name, msg, created)
     values (op.alliance, u.id, u.name,
-      pfx || '⚔️ ' || u.name || ' ha lanzado el ataque conjunto contra ' || tname || ' con ' || _wow_joint_tlabel(comb) || '.', ms);
+      '⚔️ ' || u.name || ' ha lanzado el ataque conjunto contra ' || tname || ' con ' || _wow_joint_tlabel(comb) || '.', ms);
   return jsonb_build_object('ok',true,'travel',travel,'arrive',ms + travel*1000,'target',tname,'troops',comb,'parts',actual);
 end ;
 $$;
-revoke all on function public.wow_joint_launch(text,bigint,boolean) from public;
-grant execute on function public.wow_joint_launch(text,bigint,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_launch(text,bigint) from public;
+grant execute on function public.wow_joint_launch(text,bigint) to anon, authenticated;
 
 create or replace function wow_joint_list(p_token text) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
@@ -7492,7 +7486,6 @@ begin
       'deadline', o.deadline_ms, 'created', o.created_ms, 'launched', o.launched_ms,
       'expired', (o.status = 'open' and o.deadline_ms <= ms),
       'parts', coalesce((select jsonb_agg(jsonb_build_object('owner',jt.owner,'name',coalesce(ju.name,''),
-            'bot', (jt.owner in (select user_id from wow_bots where active)),
             'troops',jt.troops,'total',_wow_joint_weight(jt.troops)) order by _wow_joint_weight(jt.troops) desc, jt.owner)
           from wow_joint_ops_troops jt join wow_users ju on ju.id = jt.owner where jt.op_id = o.id),'[]'),
       'total', coalesce((select sum(_wow_joint_weight(jt.troops)) from wow_joint_ops_troops jt where jt.op_id = o.id),0)
@@ -7525,7 +7518,6 @@ begin
     'deadline', op.deadline_ms, 'created', op.created_ms, 'launched', op.launched_ms,
     'expired', (op.status = 'open' and op.deadline_ms <= ms),
     'parts', coalesce((select jsonb_agg(jsonb_build_object('owner',jt.owner,'name',coalesce(ju.name,''),
-          'bot', (jt.owner in (select user_id from wow_bots where active)),
           'troops',jt.troops,'total',_wow_joint_weight(jt.troops)) order by _wow_joint_weight(jt.troops) desc, jt.owner)
         from wow_joint_ops_troops jt join wow_users ju on ju.id = jt.owner where jt.op_id = op.id),'[]'),
     'total', coalesce((select sum(_wow_joint_weight(jt.troops)) from wow_joint_ops_troops jt where jt.op_id = op.id),0),
@@ -7998,8 +7990,24 @@ revoke all on function public._wow_throne_land(bigint) from public;
 --   - se unen a las convocatorias abiertas de su alianza aportando tropas
 --   - convocan sus propios ataques conjuntos
 --   - lanzan la convocatoria cuando ya hay aportes de otros miembros
---   - los mensajes del chat llevan el distintivo de bot
+--   Nada de esto los delata: escriben en el chat igual que un jugador
+--   y su participacion solo queda registrada en una tabla privada
+--   (wow_bot_joint_log), que los jugadores no pueden leer.
 -- ================================================================
+
+create table if not exists wow_bot_joint_log(
+  id bigserial primary key,
+  op_id bigint,
+  user_id text,
+  alliance text,
+  action text,
+  created bigint
+);
+revoke all on table public.wow_bot_joint_log from public, anon, authenticated;
+revoke all on sequence public.wow_bot_joint_log_id_seq from public, anon, authenticated;
+
+-- limpieza de los mensajes que delataban a los bots (una sola vez)
+update wow_chat set msg = ltrim(msg, '🤖 ') where msg like '🤖 %';
 
 create or replace function _wow_bot_joint(p_id text) returns void language plpgsql security definer set search_path to 'public' as $$
 
@@ -8025,7 +8033,8 @@ begin
     select count(*) into others from wow_joint_ops_troops t where t.op_id = op.id and t.owner <> p_id;
     if others > 0 or op.created_ms < ms - 10800000 then
       begin
-        perform wow_joint_launch(b.token, op.id, true);
+        perform wow_joint_launch(b.token, op.id);
+        insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'launch', ms);
       exception when others then null;
       end;
     end if;
@@ -8040,7 +8049,11 @@ begin
     if op.id is not null and random() < 0.45 + agro::numeric/250 then
       army := _wow_bot_army(p_id, 0.5);
       if army <> '{}'::jsonb then
-        begin perform wow_joint_join(b.token, op.id, army, true); exception when others then null; end;
+        begin
+          perform wow_joint_join(b.token, op.id, army);
+          insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'join', ms);
+        exception when others then null;
+        end;
       end if;
     end if;
   end if;
@@ -8073,7 +8086,7 @@ begin
           if tgt.id is null then
             select w.id into tgt from wow_users w
               where w.active and not w.is_admin and w.id <> p_id
-                and (w.alliance is null or w.alliance <> ua)
+                and (ua is null or w.alliance is null or w.alliance <> ua)
                 and (prot = 0 or (_wow_points(w.id) >= prot and mypts - _wow_points(w.id) < prot))
               order by _wow_points(w.id) asc, random() limit 1;
           end if;
@@ -8083,11 +8096,13 @@ begin
     end if;
     if kind is not null then
       begin
-        res := wow_joint_open(b.token, kind, tgt_id, node, true);
+        res := wow_joint_open(b.token, kind, tgt_id, node);
         if res is not null and res->>'id' is not null then
+          insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values ((res->>'id')::bigint, p_id, ua, 'open', ms);
           army := _wow_bot_army(p_id, 0.5);
           if army <> '{}'::jsonb then
-            perform wow_joint_join(b.token, (res->>'id')::bigint, army, true);
+            perform wow_joint_join(b.token, (res->>'id')::bigint, army);
+            insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values ((res->>'id')::bigint, p_id, ua, 'join', ms);
           end if;
         end if;
       exception when others then null;
@@ -8152,8 +8167,8 @@ begin
     loop
       if cuartel >= _wow_treq(tk) then
         tc := _wow_tcost(tk);
-        q := least(greatest(5, ((cfg->>'trp')::int) / 3),
-                   greatest(5, floor(least(
+        q := least(greatest(1, ((cfg->>'trp')::int) / 3),
+                   greatest(1, floor(least(
                      coalesce((select gold from wow_users where id = p_id), 0) / nullif((tc->>'gold')::numeric, 0),
                      coalesce((select wood from wow_users where id = p_id), 0) / nullif((tc->>'wood')::numeric, 0),
                      coalesce((select ore  from wow_users where id = p_id), 0) / nullif((tc->>'ore')::numeric, 0)

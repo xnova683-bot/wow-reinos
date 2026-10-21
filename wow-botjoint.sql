@@ -4,8 +4,24 @@
 --   - se unen a las convocatorias abiertas de su alianza aportando tropas
 --   - convocan sus propios ataques conjuntos
 --   - lanzan la convocatoria cuando ya hay aportes de otros miembros
---   - los mensajes del chat llevan el distintivo de bot
+--   Nada de esto los delata: escriben en el chat igual que un jugador
+--   y su participacion solo queda registrada en una tabla privada
+--   (wow_bot_joint_log), que los jugadores no pueden leer.
 -- ================================================================
+
+create table if not exists wow_bot_joint_log(
+  id bigserial primary key,
+  op_id bigint,
+  user_id text,
+  alliance text,
+  action text,
+  created bigint
+);
+revoke all on table public.wow_bot_joint_log from public, anon, authenticated;
+revoke all on sequence public.wow_bot_joint_log_id_seq from public, anon, authenticated;
+
+-- limpieza de los mensajes que delataban a los bots (una sola vez)
+update wow_chat set msg = ltrim(msg, '🤖 ') where msg like '🤖 %';
 
 create or replace function _wow_bot_joint(p_id text) returns void language plpgsql security definer set search_path to 'public' as $$
 
@@ -31,7 +47,8 @@ begin
     select count(*) into others from wow_joint_ops_troops t where t.op_id = op.id and t.owner <> p_id;
     if others > 0 or op.created_ms < ms - 10800000 then
       begin
-        perform wow_joint_launch(b.token, op.id, true);
+        perform wow_joint_launch(b.token, op.id);
+        insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'launch', ms);
       exception when others then null;
       end;
     end if;
@@ -46,7 +63,11 @@ begin
     if op.id is not null and random() < 0.45 + agro::numeric/250 then
       army := _wow_bot_army(p_id, 0.5);
       if army <> '{}'::jsonb then
-        begin perform wow_joint_join(b.token, op.id, army, true); exception when others then null; end;
+        begin
+          perform wow_joint_join(b.token, op.id, army);
+          insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values (op.id, p_id, ua, 'join', ms);
+        exception when others then null;
+        end;
       end if;
     end if;
   end if;
@@ -79,7 +100,7 @@ begin
           if tgt.id is null then
             select w.id into tgt from wow_users w
               where w.active and not w.is_admin and w.id <> p_id
-                and (w.alliance is null or w.alliance <> ua)
+                and (ua is null or w.alliance is null or w.alliance <> ua)
                 and (prot = 0 or (_wow_points(w.id) >= prot and mypts - _wow_points(w.id) < prot))
               order by _wow_points(w.id) asc, random() limit 1;
           end if;
@@ -89,11 +110,13 @@ begin
     end if;
     if kind is not null then
       begin
-        res := wow_joint_open(b.token, kind, tgt_id, node, true);
+        res := wow_joint_open(b.token, kind, tgt_id, node);
         if res is not null and res->>'id' is not null then
+          insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values ((res->>'id')::bigint, p_id, ua, 'open', ms);
           army := _wow_bot_army(p_id, 0.5);
           if army <> '{}'::jsonb then
-            perform wow_joint_join(b.token, (res->>'id')::bigint, army, true);
+            perform wow_joint_join(b.token, (res->>'id')::bigint, army);
+            insert into wow_bot_joint_log(op_id, user_id, alliance, action, created) values ((res->>'id')::bigint, p_id, ua, 'join', ms);
           end if;
         end if;
       exception when others then null;

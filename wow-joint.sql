@@ -290,15 +290,13 @@ end ;
 $$;
 revoke all on function public._wow_joint_throne_loot(bigint,integer,text,jsonb,boolean) from public;
 
-drop function if exists public.wow_joint_open(text,text,text,integer);
-create or replace function wow_joint_open(p_token text, p_target_kind text, p_target text, p_node integer, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_open(p_token text, p_target_kind text, p_target text, p_node integer) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
-declare u wow_users; t wow_users; th wow_thrones; ms bigint; op_id bigint; tk text; tn text; pfx text;
+declare u wow_users; t wow_users; th wow_thrones; ms bigint; op_id bigint; tk text; tn text;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   if u.alliance is null then raise exception 'Necesitas una alianza para convocar un ataque conjunto.'; end if;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   tk := lower(coalesce(p_target_kind,''));
   if tk not in ('reino','trono','aldea') then raise exception 'Objetivo inválido.'; end if;
   ms := (extract(epoch from now())*1000)::bigint;
@@ -324,22 +322,20 @@ begin
     returning id into op_id;
   insert into wow_chat(alliance, user_id, name, msg, created)
     values (u.alliance, u.id, u.name,
-      pfx || '⚔️ ' || u.name || ' ha convocado un ataque conjunto contra ' || tn || '. ¡Aportad vuestras tropas!', ms);
+      '⚔️ ' || u.name || ' ha convocado un ataque conjunto contra ' || tn || '. ¡Aportad vuestras tropas!', ms);
   return jsonb_build_object('ok',true,'id',op_id,'target',tn,'deadline',ms + 86400000);
 end ;
 $$;
-revoke all on function public.wow_joint_open(text,text,text,integer,boolean) from public;
-grant execute on function public.wow_joint_open(text,text,text,integer,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_open(text,text,text,integer) from public;
+grant execute on function public.wow_joint_open(text,text,text,integer) to anon, authenticated;
 
-drop function if exists public.wow_joint_join(text,bigint,jsonb);
-create or replace function wow_joint_join(p_token text, p_op bigint, p_troops jsonb, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_join(p_token text, p_op bigint, p_troops jsonb) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
-declare u wow_users; op wow_joint_ops; ms bigint; army jsonb; z record; avail int; pfx text;
+declare u wow_users; op wow_joint_ops; ms bigint; army jsonb; z record; avail int;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
   ms := (extract(epoch from now())*1000)::bigint;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   select * into op from wow_joint_ops where id = p_op;
   if op.id is null then raise exception 'Esa convocatoria no existe.'; end if;
   if op.status <> 'open' then raise exception 'Esta convocatoria ya no está abierta.'; end if;
@@ -356,12 +352,12 @@ begin
   insert into wow_joint_ops_troops(op_id, owner, troops, joined_ms) values (op.id, u.id, army, ms)
     on conflict (op_id, owner) do update set troops = excluded.troops, joined_ms = excluded.joined_ms;
   insert into wow_chat(alliance, user_id, name, msg, created)
-    values (op.alliance, u.id, u.name, pfx || '🛡️ ' || u.name || ' aporta ' || _wow_joint_tlabel(army) || ' al ataque conjunto.', ms);
+    values (op.alliance, u.id, u.name, '🛡️ ' || u.name || ' aporta ' || _wow_joint_tlabel(army) || ' al ataque conjunto.', ms);
   return jsonb_build_object('ok',true,'troops',army);
 end ;
 $$;
-revoke all on function public.wow_joint_join(text,bigint,jsonb,boolean) from public;
-grant execute on function public.wow_joint_join(text,bigint,jsonb,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_join(text,bigint,jsonb) from public;
+grant execute on function public.wow_joint_join(text,bigint,jsonb) to anon, authenticated;
 
 create or replace function wow_joint_leave(p_token text, p_op bigint) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
@@ -398,19 +394,17 @@ $$;
 revoke all on function public.wow_joint_cancel(text,bigint) from public;
 grant execute on function public.wow_joint_cancel(text,bigint) to anon, authenticated;
 
-drop function if exists public.wow_joint_launch(text,bigint);
-create or replace function wow_joint_launch(p_token text, p_op bigint, p_bot boolean default false) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+create or replace function wow_joint_launch(p_token text, p_op bigint) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
 declare
   u wow_users; op wow_joint_ops; t wow_users; th wow_thrones;
-  ms bigint; z record; e record; pfx text;
+  ms bigint; z record; e record;
   sent jsonb; actual jsonb := '{}'::jsonb; comb jsonb := '{}'::jsonb;
   travel integer; avail int; take int; protect numeric; got boolean := false;
   tname text; lab text;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  pfx := case when coalesce(p_bot,false) then '🤖 ' else '' end;
   perform _wow_resolve();
   u := _wow_tick(u.id);
   ms := (extract(epoch from now())*1000)::bigint;
@@ -475,12 +469,12 @@ begin
   perform _wow_event('alliance', '⚔️ Ataque conjunto de ' || coalesce(nullif(lab,''),'una alianza') || ' contra ' || tname || '.');
   insert into wow_chat(alliance, user_id, name, msg, created)
     values (op.alliance, u.id, u.name,
-      pfx || '⚔️ ' || u.name || ' ha lanzado el ataque conjunto contra ' || tname || ' con ' || _wow_joint_tlabel(comb) || '.', ms);
+      '⚔️ ' || u.name || ' ha lanzado el ataque conjunto contra ' || tname || ' con ' || _wow_joint_tlabel(comb) || '.', ms);
   return jsonb_build_object('ok',true,'travel',travel,'arrive',ms + travel*1000,'target',tname,'troops',comb,'parts',actual);
 end ;
 $$;
-revoke all on function public.wow_joint_launch(text,bigint,boolean) from public;
-grant execute on function public.wow_joint_launch(text,bigint,boolean) to anon, authenticated;
+revoke all on function public.wow_joint_launch(text,bigint) from public;
+grant execute on function public.wow_joint_launch(text,bigint) to anon, authenticated;
 
 create or replace function wow_joint_list(p_token text) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
@@ -497,7 +491,6 @@ begin
       'deadline', o.deadline_ms, 'created', o.created_ms, 'launched', o.launched_ms,
       'expired', (o.status = 'open' and o.deadline_ms <= ms),
       'parts', coalesce((select jsonb_agg(jsonb_build_object('owner',jt.owner,'name',coalesce(ju.name,''),
-            'bot', (jt.owner in (select user_id from wow_bots where active)),
             'troops',jt.troops,'total',_wow_joint_weight(jt.troops)) order by _wow_joint_weight(jt.troops) desc, jt.owner)
           from wow_joint_ops_troops jt join wow_users ju on ju.id = jt.owner where jt.op_id = o.id),'[]'),
       'total', coalesce((select sum(_wow_joint_weight(jt.troops)) from wow_joint_ops_troops jt where jt.op_id = o.id),0)
@@ -530,7 +523,6 @@ begin
     'deadline', op.deadline_ms, 'created', op.created_ms, 'launched', op.launched_ms,
     'expired', (op.status = 'open' and op.deadline_ms <= ms),
     'parts', coalesce((select jsonb_agg(jsonb_build_object('owner',jt.owner,'name',coalesce(ju.name,''),
-          'bot', (jt.owner in (select user_id from wow_bots where active)),
           'troops',jt.troops,'total',_wow_joint_weight(jt.troops)) order by _wow_joint_weight(jt.troops) desc, jt.owner)
         from wow_joint_ops_troops jt join wow_users ju on ju.id = jt.owner where jt.op_id = op.id),'[]'),
     'total', coalesce((select sum(_wow_joint_weight(jt.troops)) from wow_joint_ops_troops jt where jt.op_id = op.id),0),
