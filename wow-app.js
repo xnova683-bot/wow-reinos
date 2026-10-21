@@ -2237,12 +2237,9 @@ Game.openMadam = async function(){
     '<h3 style="margin:0 0 8px">💃 La Madam</h3>' +
     estados +
     '<div style="margin:12px 0;line-height:1.5"><b>' + esc(st.t) + '</b><br><span style="opacity:.9">' + esc(st.s) + '</span></div>' +
-    '<div style="display:flex;flex-direction:column;gap:8px">' +
-      '<button class="btn" id="mdHire">' + esc(st.a) + ' <span style="opacity:.7">(' + btn + ')</span></button>' +
-      '<button class="btn sm" id="mdB" disabled title="Próximamente">' + esc(st.b) + '</button>' +
-      '<button class="btn sm" id="mdC" disabled title="Próximamente">' + esc(st.c) + '</button>' +
-    '</div>' +
-    '<div style="text-align:center;margin-top:10px;opacity:.6;font-size:12px">Otros caminos, próximamente…</div>'
+    '<div style="text-align:center;margin-top:6px">' +
+      '<button class="btn" id="mdHire">' + btn + '</button>' +
+    '</div>'
   );
   const hb = $("#mdHire");
   if(hb) hb.onclick = async () => {
