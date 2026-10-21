@@ -485,3 +485,45 @@ begin
 end ;
 $$;
 revoke all on function public._wow_throne_land(bigint) from public, anon, authenticated;
+
+-- estado del reino (override): incluye atk_bonus para mostrar el +1 en el Cuartel
+create or replace function public.wow_state(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+
+declare u wow_users; blds jsonb; trs jsonb; que jsonb; cap numeric; rate jsonb; ms bigint; pts integer; abon numeric;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  perform _wow_resolve();
+  u := _wow_tick(u.id);
+  cap := _wow_cap(u.id); rate := _wow_rate(u.id);
+  ms := (extract(epoch from now())*1000)::bigint;
+  select coalesce(jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0),
+             'cost', _wow_bcost(v.k, coalesce(b.level,0)), 'time', _wow_btime(v.k, coalesce(b.level,0)),
+             'prod', _wow_bprod(v.k, coalesce(b.level,0))) order by v.ord), '[]') into blds
+    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),
+                 ('herreria',6),('fortaleza',7),('mercado',8),('muralla',9)) v(k,ord)
+    left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
+  select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
+             'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),
+             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t), 'req', _wow_treq(v.t)) order by v.ord), '[]') into trs
+    from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
+    left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
+  select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
+           'start', q.start_ms, 'finish', q.finish_ms) order by q.kind), '[]') into que
+    from wow_queue q where q.owner_id = u.id;
+  abon := _wow_madam_bonus(u.id);
+  pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
+       + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
+  return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
+    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
+    'prod_mult', (_wow_prod_global() * _wow_prod_clamp(u.prod_mult)),
+    'buildings', blds, 'troops', trs, 'queue', que->0, 'queues', que, 'points', pts, 'now', ms, 'atk_bonus', abon,
+    'alliance', u.alliance,
+    'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''),
+    'ally_emblem', _wow_ally_icon(u.alliance),
+    'online', _wow_online_count());
+end ;
+$$;
+revoke all on function public.wow_state(text) from public;
+grant execute on function public.wow_state(text) to anon, authenticated;

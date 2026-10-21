@@ -540,7 +540,9 @@ const Game = {
     if(!unlocked){
       html += `<div class="empty">⚔️ Necesitas al menos un <b>Cuartel</b> (nivel 1) para entrenar tropas.<br><br>Sube el Cuartel en la pestaña 🏰 Edificios.</div>`;
     }
+    const abon = Number(s.atk_bonus || 0);
     html += '<div class="hint" style="margin:6px 0 10px">🔒 El <b>Cuartel</b> desbloquea tropas: 🗡️ Soldado 1 · 🏹 Arquero 3 · 🐎 Jinete 5 · 🔮 Mago 7 · 🛡️ Paladín 9 · 🐉 Dragón 11.</div>';
+    if(abon > 0) html += `<div class="hint" style="margin:0 0 10px;color:var(--gold)">💃 La Madam y sus chicas cabalgan con tus tropas: <b>+${abon} de ataque</b> a cada unidad mientras el contrato esté activo.</div>`;
     html += '<div class="grid">';
     (s.troops || []).forEach(t => {
       const m = TRP[t.key] || { e: "⚔️", n: t.key, d: "" };
@@ -554,7 +556,7 @@ const Game = {
           ${img ? "" : `<span class="emoji">${m.e}</span>`}
           <div style="flex:1"><div class="bName">${m.n} <span class="troopQty">× ${un(t.qty)}</span>${locked ? `<span class="lockTag">🔒 Cuartel ${req}</span>` : ""}</div>
           <div class="bDesc">${m.d}</div>
-          <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(t.atk)} · ❤️ HP ${un(t.hp)}</div>
+          <div class="bDesc" style="color:var(--gold)">⚔️ ATK ${un(Number(t.atk) + abon)}${abon > 0 ? ` <span style="color:var(--green)">(+${abon} 💃)</span>` : ""} · ❤️ HP ${un(t.hp)}</div>
           <div class="bDesc" style="color:var(--green)">▸ vence a ${c.up}</div>
           <div class="bDesc" style="color:var(--bad)">▸ teme a ${c.dn}</div></div>
         </div>
