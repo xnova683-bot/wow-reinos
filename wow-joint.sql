@@ -224,11 +224,12 @@ end ;
 $$;
 revoke all on function public._wow_joint_split(bigint,jsonb,jsonb) from public;
 
-create or replace function _wow_joint_pay(p_op bigint, p_troops jsonb, p_loot jsonb, p_dir text, p_win boolean, p_who text) returns jsonb language plpgsql security definer set search_path to 'public' as $$
+drop function if exists public._wow_joint_pay(bigint,jsonb,jsonb,text,boolean,text);
+create or replace function _wow_joint_pay(p_op bigint, p_troops jsonb, p_loot jsonb, p_dir text, p_win boolean, p_who text, p_battle jsonb default null) returns jsonb language plpgsql security definer set search_path to 'public' as $$
 
 declare
   parts jsonb; r record; z record; ms bigint; nm text;
-  troops jsonb; loot jsonb;
+  troops jsonb; loot jsonb; btl jsonb;
 begin
   ms := (extract(epoch from now())*1000)::bigint;
   parts := _wow_joint_split(p_op, p_troops, p_loot);
@@ -246,23 +247,24 @@ begin
         cup  = coalesce(cup,0) + coalesce((loot->>'cup')::numeric,0)
       where id = r.value->>'owner';
     select name into nm from wow_users where id = r.value->>'owner';
+    btl := case when p_battle is null then '{}'::jsonb else jsonb_build_object('battle', p_battle) end;
     if p_dir = 'return' then
       insert into wow_reports(owner, kind, data, created) values
         (r.value->>'owner','return', jsonb_build_object('dir','return','who',coalesce(nm,''),'win',true,
-          'loot',loot,'troops',troops,'joint',true,'pct',r.value->'pct','created',ms), ms);
+          'loot',loot,'troops',troops,'joint',true,'pct',r.value->'pct','created',ms) || btl, ms);
     else
       insert into wow_reports(owner, kind, data, created) values
         (r.value->>'owner','out', jsonb_build_object('dir','throne','who',coalesce(p_who,''),'win',p_win,
-          'loot',loot,'joint',true,'pct',r.value->'pct','created',ms), ms);
+          'loot',loot,'joint',true,'pct',r.value->'pct','created',ms) || btl, ms);
     end if;
     insert into wow_joint_ops_reports(op_id, owner, report, created) values
       (p_op, r.value->>'owner', jsonb_build_object('dir',p_dir,'win',p_win,'loot',loot,
-        'troops',troops,'pct',r.value->'pct','created',ms), ms);
+        'troops',troops,'pct',r.value->'pct','created',ms) || btl, ms);
   end loop;
   return parts;
 end ;
 $$;
-revoke all on function public._wow_joint_pay(bigint,jsonb,jsonb,text,boolean,text) from public;
+revoke all on function public._wow_joint_pay(bigint,jsonb,jsonb,text,boolean,text,jsonb) from public;
 
 create or replace function _wow_joint_settle(p_op bigint, p_troops jsonb, p_loot jsonb) returns void language plpgsql security definer set search_path to 'public' as $$
 
@@ -285,7 +287,7 @@ begin
     end loop;
     if tres <> '{}'::jsonb then delete from wow_throne_treasure where node = p_node; end if;
   end if;
-  perform _wow_joint_pay(p_op, '{}'::jsonb, tres, 'throne', p_win, coalesce(p_node_name,''));
+  perform _wow_joint_pay(p_op, '{}'::jsonb, tres, 'throne', p_win, coalesce(p_node_name,''), p_sim);
 end ;
 $$;
 revoke all on function public._wow_joint_throne_loot(bigint,integer,text,jsonb,boolean) from public;
@@ -839,6 +841,7 @@ declare
   sim jsonb; surv jsonb; msg jsonb; prev text; ret integer; ually text; lab text;
   a_forge int; a_fort int; d_forge int; d_fort int; d_wall int;
   a_bon numeric; d_bon numeric; a_bon_arr numeric[]; jst jsonb;
+  asurv jsonb; jp record;
 begin
   ms := (extract(epoch from now())*1000)::bigint;
   select * into f from wow_fleets where id = p_fleet_id;
@@ -906,7 +909,14 @@ begin
     ually := u.alliance;
     update wow_thrones set holder = u.id, holder_name = u.name, holder_ally = ually,
       since_ms = ms, garrison = f.troops, accrue_ms = ms where node = t.node;
-    perform _wow_contrib_set(t.node, u.id, f.troops);
+    delete from wow_node_contrib where node = t.node;
+    if f.joint_op is not null then
+      for jp in select * from jsonb_array_elements(_wow_joint_split(f.joint_op, f.troops, '{}'::jsonb)) loop
+        perform _wow_contrib_add(t.node, jp.value->>'owner', jp.value->'troops');
+      end loop;
+    else
+      perform _wow_contrib_set(t.node, u.id, f.troops);
+    end if;
     perform _wow_throne_log(t.node, 'take', u.id, u.name, jsonb_build_object('garrison', f.troops));
     lab := _wow_ally_label(ually);
     perform _wow_event('throne', (case when t.kind = 'aldea' then '🛖 ' else '🏯 ' end) || u.name || ' ha ocupado ' || t.name ||
@@ -942,6 +952,10 @@ begin
     sim := _wow_sim(f.troops, t.garrison, d_wall, (ms/1000) + t.node*131,
                     1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort, a_bon, d_bon);
   end if;
+  asurv := '{}'::jsonb;
+  for z in select key, value from jsonb_each_text(sim->'a_left') loop
+    if (z.value)::int > 0 then asurv := asurv || jsonb_build_object(z.key, (z.value)::int); end if;
+  end loop;
   if (sim->>'winner') = 'attacker' then
     ually := u.alliance;
     surv := '{}'::jsonb;
@@ -950,7 +964,14 @@ begin
     end loop;
     update wow_thrones set holder = u.id, holder_name = u.name, holder_ally = ually,
       since_ms = ms, garrison = surv, accrue_ms = ms where node = t.node;
-    perform _wow_contrib_set(t.node, u.id, surv);
+    delete from wow_node_contrib where node = t.node;
+    if f.joint_op is not null then
+      for jp in select * from jsonb_array_elements(_wow_joint_split(f.joint_op, surv, '{}'::jsonb)) loop
+        perform _wow_contrib_add(t.node, jp.value->>'owner', jp.value->'troops');
+      end loop;
+    else
+      perform _wow_contrib_set(t.node, u.id, surv);
+    end if;
     perform _wow_throne_log(t.node, 'conquest', u.id, u.name, jsonb_build_object('from', prev));
     lab := _wow_ally_label(ually);
     perform _wow_event('throne', (case when t.kind = 'aldea' then '🏘️ ' else '👑 ' end) || u.name || ' ha conquistado ' || t.name ||
@@ -978,6 +999,10 @@ begin
     if f.joint_op is not null then
       perform _wow_joint_throne_loot(f.joint_op, t.node, t.name, sim, false);
       update wow_joint_ops set status = 'done' where id = f.joint_op;
+      ret := _wow_travel_node(u.pos, coalesce(f.node, _wow_pos_node(u.pos)));
+      update wow_fleets set state = 'returning', troops = asurv, loot = '{}'::jsonb,
+        arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
+      return;
     end if;
   end if;
   delete from wow_fleets where id = f.id;
