@@ -6329,6 +6329,8 @@ insert into wow_settings(key,val) values
   ('madam_days','30'),
   ('madam_bonus','1'),
   ('tavern_share','0'),
+  ('tavern_pct_trono','1'),
+  ('tavern_pct_aldea','0.3'),
   ('madam_admin_pct','0')
 on conflict (key) do nothing;
 
@@ -6363,22 +6365,35 @@ language sql stable set search_path to 'public' as $$
   select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='tavern_share'),0)));
 $$;
 
+-- % de cada contrato que se le asigna a las fortalezas (tronos)
+create or replace function public._wow_tavern_pct_trono() returns numeric
+language sql stable set search_path to 'public' as $$
+  select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='tavern_pct_trono'),1)));
+$$;
+
+-- % de cada contrato que se le asigna a las aldeas
+create or replace function public._wow_tavern_pct_aldea() returns numeric
+language sql stable set search_path to 'public' as $$
+  select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='tavern_pct_aldea'),0.3)));
+$$;
+
 -- % de cada contrato que se lleva el administrador
 create or replace function public._wow_madam_admin_pct() returns numeric
 language sql stable set search_path to 'public' as $$
   select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='madam_admin_pct'),0)));
 $$;
 
--- reparte a los nodos ocupados un % del importe, igual que el mercado:
---   por cada nodo, base * min(porcentaje del nodo, cap) / 100  (en CUP)
-create or replace function public._wow_tavern_distribute(p_base numeric, p_key text, p_cap numeric)
+-- reparte a los nodos ocupados: cada nodo toma su % segun su tipo (trono/aldea)
+create or replace function public._wow_tavern_distribute(p_base numeric, p_key text)
 returns numeric language plpgsql security definer set search_path to 'public' as $$
-declare cap numeric; tt record; share numeric; total numeric := 0;
+declare pt numeric; pa numeric; tt record; share numeric; total numeric := 0;
 begin
-  cap := greatest(0, least(100, coalesce(p_cap, _wow_tavern_share())));
-  if cap <= 0 or coalesce(p_base,0) <= 0 then return 0; end if;
-  for tt in select node from wow_thrones where holder is not null order by node for update loop
-    share := round(p_base * least(_wow_node_pct(tt.node), cap) / 100.0, 2);
+  if coalesce(p_base,0) <= 0 then return 0; end if;
+  pt := _wow_tavern_pct_trono();
+  pa := _wow_tavern_pct_aldea();
+  for tt in select node, _wow_node_kind(node) kind from wow_thrones where holder is not null order by node for update loop
+    if tt.kind = 'aldea' then share := round(p_base * pa / 100.0, 2);
+    else share := round(p_base * pt / 100.0, 2); end if;
     if share > 0 then
       perform _wow_throne_add(tt.node, p_key, share);
       total := total + share;
@@ -6415,7 +6430,7 @@ begin
   ms := (extract(epoch from now())*1000)::bigint;
   select * into c from wow_tavern_contracts where owner = u.id;
   return jsonb_build_object('ok', true,
-    'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'share', _wow_tavern_share(), 'admin_pct', _wow_madam_admin_pct(),
+    'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'admin_pct', _wow_madam_admin_pct(), 'pct_trono', _wow_tavern_pct_trono(), 'pct_aldea', _wow_tavern_pct_aldea(),
     'cup', u.cup, 'earned', _wow_madam_earned(),
     'active', (c.owner is not null and c.until_ms > ms),
     'until', coalesce(c.until_ms, 0),
@@ -6449,7 +6464,7 @@ begin
   if admin_cut > 0 then
     update wow_users set cup = coalesce(cup,0) + admin_cut where is_admin = true;
   end if;
-  repartido := _wow_tavern_distribute(cost - admin_cut, 'cup', _wow_tavern_share());
+  repartido := _wow_tavern_distribute(cost - admin_cut, 'cup');
   return jsonb_build_object('ok', true, 'cost', cost, 'until', until_ms, 'bonus', _wow_madam_bonusth(),
     'cup', (select cup from wow_users where id=u.id), 'admin_cut', admin_cut, 'shared', repartido);
 end $$;
@@ -6888,10 +6903,11 @@ $$;
 revoke all on function public.wow_state(text) from public;
 grant execute on function public.wow_state(text) to anon, authenticated;
 
--- ajustes de la taberna: coste, duracion, bonus, % admin y % tope al tesoro
+-- ajustes de la taberna: coste, duracion, bonus, % admin, % fortalezas y % aldeas
 drop function if exists public.wow_admin_setmadam(text, numeric, numeric, numeric);
 drop function if exists public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric);
-create or replace function public.wow_admin_setmadam(p_token text, p_cost numeric, p_days numeric, p_bonus numeric, p_admin numeric, p_share numeric)
+drop function if exists public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric, numeric);
+create or replace function public.wow_admin_setmadam(p_token text, p_cost numeric, p_days numeric, p_bonus numeric, p_admin numeric, p_trono numeric, p_aldea numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare a wow_users;
 begin
@@ -6900,16 +6916,18 @@ begin
   if not (p_days >= 1 and p_days <= 365) then raise exception 'La duracion debe estar entre 1 y 365 dias.'; end if;
   if not (p_bonus >= 0 and p_bonus <= 100) then raise exception 'El bonus debe estar entre 0 y 100.'; end if;
   if not (p_admin >= 0 and p_admin <= 100) then raise exception 'La ganancia del admin debe estar entre 0 y 100.'; end if;
-  if not (p_share >= 0 and p_share <= 100) then raise exception 'El porcentaje al tesoro debe estar entre 0 y 100.'; end if;
+  if not (p_trono >= 0 and p_trono <= 100) then raise exception 'El porcentaje de fortalezas debe estar entre 0 y 100.'; end if;
+  if not (p_aldea >= 0 and p_aldea <= 100) then raise exception 'El porcentaje de aldeas debe estar entre 0 y 100.'; end if;
   insert into wow_settings(key,val) values ('madam_cost', p_cost::text) on conflict (key) do update set val = excluded.val;
   insert into wow_settings(key,val) values ('madam_days', p_days::text) on conflict (key) do update set val = excluded.val;
   insert into wow_settings(key,val) values ('madam_bonus', p_bonus::text) on conflict (key) do update set val = excluded.val;
   insert into wow_settings(key,val) values ('madam_admin_pct', p_admin::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('tavern_share', p_share::text) on conflict (key) do update set val = excluded.val;
-  return jsonb_build_object('ok', true, 'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'admin_pct', _wow_madam_admin_pct(), 'share', _wow_tavern_share());
+  insert into wow_settings(key,val) values ('tavern_pct_trono', p_trono::text) on conflict (key) do update set val = excluded.val;
+  insert into wow_settings(key,val) values ('tavern_pct_aldea', p_aldea::text) on conflict (key) do update set val = excluded.val;
+  return jsonb_build_object('ok', true, 'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'admin_pct', _wow_madam_admin_pct(), 'pct_trono', _wow_tavern_pct_trono(), 'pct_aldea', _wow_tavern_pct_aldea());
 end $$;
-revoke all on function public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric, numeric) from public;
-grant execute on function public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric, numeric) to anon, authenticated;
+revoke all on function public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric, numeric, numeric) from public;
+grant execute on function public.wow_admin_setmadam(text, numeric, numeric, numeric, numeric, numeric, numeric) to anon, authenticated;
 
 -- reinos con contrato de la Madam activo ahora
 create or replace function public.wow_admin_madam_contracts(p_token text)
@@ -6940,7 +6958,7 @@ begin
   a := _wow_admin(p_token);
   perform _wow_resolve();
   ms := (extract(epoch from now())*1000)::bigint;
-  select jsonb_build_object('now', ms, 'me', a.id, 'prod_mult', _wow_prod_global(), 'madam', jsonb_build_object('cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'active_n', (select count(*) from wow_tavern_contracts where until_ms > ms), 'earned', _wow_madam_earned(), 'share', _wow_tavern_share(), 'admin_pct', _wow_madam_admin_pct()), 'users', coalesce((
+  select jsonb_build_object('now', ms, 'me', a.id, 'prod_mult', _wow_prod_global(), 'madam', jsonb_build_object('cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'active_n', (select count(*) from wow_tavern_contracts where until_ms > ms), 'earned', _wow_madam_earned(), 'admin_pct', _wow_madam_admin_pct(), 'pct_trono', _wow_tavern_pct_trono(), 'pct_aldea', _wow_tavern_pct_aldea()), 'users', coalesce((
     select jsonb_agg(jsonb_build_object(
       'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos,
       'active', w.active, 'is_admin', w.is_admin,

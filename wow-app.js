@@ -1732,10 +1732,11 @@ const Game = {
         '<label>Duración (días)<input id="adMdmDays" type="number" min="1" max="365" value="' + un(m.days != null ? m.days : 30) + '"></label>' +
         '<label>Bonus de ataque por tropa<input id="adMdmBonus" type="number" min="0" max="100" value="' + un(m.bonus != null ? m.bonus : 1) + '"></label>' +
         '<label>% ganancia del admin<input id="adMdmAdmin" type="number" min="0" max="100" step="0.01" value="' + dec(m.admin_pct != null ? m.admin_pct : 0) + '"></label>' +
-        '<label>% tope al tesoro de tronos y aldeas<input id="adMdmShare" type="number" min="0" max="100" step="0.01" value="' + dec(m.share != null ? m.share : 0) + '"></label>' +
+        '<label>% para las fortalezas<input id="adMdmTrono" type="number" min="0" max="100" step="0.01" value="' + dec(m.pct_trono != null ? m.pct_trono : 1) + '"></label>' +
+        '<label>% para las aldeas<input id="adMdmAldea" type="number" min="0" max="100" step="0.01" value="' + dec(m.pct_aldea != null ? m.pct_aldea : 0.3) + '"></label>' +
       '</div>' +
       '<p class="hint" style="margin-top:8px">Mientras el contrato esté activo, todas las tropas del reino reciben el bonus de ataque (atacando y defendiendo). · Contratos activos ahora: <b>' + un((this.madam && this.madam.active_n) || 0) + '</b> · Total recaudado: <b>' + un((this.madam && this.madam.earned) || 0) + ' CUP</b>.</p>' +
-      '<p class="hint">De cada contrato: el <b>% del admin</b> se ingresa como CUP en el reino del administrador; el <b>resto</b> se reparte automáticamente entre los tronos y aldeas ocupados (cada nodo hasta su <b>% tope</b>, tronos 1% y aldeas 0,30% por defecto).</p>' +
+      '<p class="hint">De cada contrato: el <b>% del admin</b> se ingresa como CUP en el reino del administrador; el <b>resto</b> se reparte automáticamente entre los tronos y aldeas ocupados: cada fortaleza recibe el <b>% fortalezas</b> del resto y cada aldea el <b>% aldeas</b> del resto.</p>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="adMdmGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos</h3>' +
@@ -1746,16 +1747,18 @@ const Game = {
       const days = Number($("#adMdmDays").value);
       const bonus = Number($("#adMdmBonus").value);
       const admin = Number($("#adMdmAdmin").value);
-      const share = Number($("#adMdmShare").value);
+      const trono = Number($("#adMdmTrono").value);
+      const aldea = Number($("#adMdmAldea").value);
       if(!(cost >= 0 && cost <= 100000)) return notice($("#admMsg"), "El precio debe estar entre 0 y 100.000 CUP.", "danger");
       if(!(days >= 1 && days <= 365)) return notice($("#admMsg"), "La duración debe estar entre 1 y 365 días.", "danger");
       if(!(bonus >= 0 && bonus <= 100)) return notice($("#admMsg"), "El bonus debe estar entre 0 y 100.", "danger");
       if(!(admin >= 0 && admin <= 100)) return notice($("#admMsg"), "La ganancia del admin debe estar entre 0 y 100.", "danger");
-      if(!(share >= 0 && share <= 100)) return notice($("#admMsg"), "El % tope al tesoro debe estar entre 0 y 100.", "danger");
+      if(!(trono >= 0 && trono <= 100)) return notice($("#admMsg"), "El % de fortalezas debe estar entre 0 y 100.", "danger");
+      if(!(aldea >= 0 && aldea <= 100)) return notice($("#admMsg"), "El % de aldeas debe estar entre 0 y 100.", "danger");
       $("#adMdmGo").disabled = true;
       try{
-        const r = await sbRpc("wow_admin_setmadam", { p_token: this.me.token, p_cost: cost, p_days: days, p_bonus: bonus, p_admin: admin, p_share: share });
-        this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, admin_pct: r.admin_pct, share: r.share, active_n: (this.madam && this.madam.active_n) || 0, earned: (this.madam && this.madam.earned) || 0 };
+        const r = await sbRpc("wow_admin_setmadam", { p_token: this.me.token, p_cost: cost, p_days: days, p_bonus: bonus, p_admin: admin, p_trono: trono, p_aldea: aldea });
+        this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, admin_pct: r.admin_pct, pct_trono: r.pct_trono, pct_aldea: r.pct_aldea, active_n: (this.madam && this.madam.active_n) || 0, earned: (this.madam && this.madam.earned) || 0 };
         modalClose(); toast("🍺 Precios de la taberna guardados."); this.loadAdmin();
       }catch(e){ $("#adMdmGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
