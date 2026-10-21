@@ -1534,6 +1534,7 @@ const Game = {
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
       try{ const pp = await sbRpc("wow_prod_info", {}); this.prodMult = pp && pp.mult; }catch(_){ this.prodMult = this.prodMult; }
       this.prodMult = (this.adm && this.adm.prod_mult != null) ? this.adm.prod_mult : this.prodMult;
+      this.madam = (this.adm && this.adm.madam) || this.madam;
       try{ const bl = await sbRpc("wow_admin_bot_list", { p_token: this.me.token }); this.bots = (bl && bl.bots) || []; this.botAuto = !!(bl && bl.auto); this.botNow = bl && bl.now; this.botProtect = bl && bl.protect; }catch(_){ this.bots = this.bots || []; }
     }
     catch(e){ this.adm = null; if(!quiet) el.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; return; }
@@ -1583,7 +1584,8 @@ const Game = {
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
       ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) + ' /h · 🔰 protección ' + un(prot) + ' pts · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
-      '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
+       '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
+       '<button class="btn sm" id="admTavern">🍺 Taberna</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
       '<button class="btn sm" id="admClock">🕒 Relojes raros</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
@@ -1597,6 +1599,7 @@ const Game = {
     const rb = $("#admRefresh"); if(rb) rb.onclick = () => this.loadAdmin();
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
     const pb = $("#admProd"); if(pb) pb.onclick = () => this.admProd();
+    const tb = $("#admTavern"); if(tb) tb.onclick = () => this.admTavern();
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
     const cb = $("#admClock"); if(cb) cb.onclick = () => this.admClock();
     const fi = $("#admFind"); if(fi){
@@ -1717,6 +1720,34 @@ const Game = {
         this.prodMult = (r && r.prod_mult != null) ? r.prod_mult : v;
         modalClose(); toast("Producción global ×" + dec(this.prodMult) + "."); this.loadAdmin();
       }catch(e){ $("#admProdGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+  },
+  admTavern(){
+    const m = this.madam || { cost: 50, days: 30, bonus: 1 };
+    modal('<h2 style="margin-top:0;color:var(--gold)">🍺 Taberna · precios</h2>' +
+      '<p class="hint">Ajusta lo que cuesta y lo que dan las atracciones de la taberna. Ahora mismo solo la <b>💃 Madam</b> tiene contrato; 🗡️ Mercenarios y 🍺 Beber llegarán después y también se regularán desde aquí.</p>' +
+      '<h3 style="margin:14px 0 6px;color:var(--gold)">💃 La Madam</h3>' +
+      '<div class="admInputs">' +
+        '<label>Precio del contrato (CUP)<input id="adMdmCost" type="number" min="0" max="100000" value="' + un(m.cost != null ? m.cost : 50) + '"></label>' +
+        '<label>Duración (días)<input id="adMdmDays" type="number" min="1" max="365" value="' + un(m.days != null ? m.days : 30) + '"></label>' +
+        '<label>Bonus de ataque por tropa<input id="adMdmBonus" type="number" min="0" max="100" value="' + un(m.bonus != null ? m.bonus : 1) + '"></label>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:8px">Mientras el contrato esté activo, todas las tropas del reino reciben el bonus de ataque (atacando y defendiendo). · Contratos activos ahora: <b>' + un((this.madam && this.madam.active_n) || 0) + '</b>.</p>' +
+      '<div style="text-align:center;margin-top:14px"><button class="btn" id="adMdmGo">Guardar</button></div>' +
+      '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    $("#adMdmGo").onclick = async () => {
+      const cost = Number($("#adMdmCost").value);
+      const days = Number($("#adMdmDays").value);
+      const bonus = Number($("#adMdmBonus").value);
+      if(!(cost >= 0 && cost <= 100000)) return notice($("#admMsg"), "El precio debe estar entre 0 y 100.000 CUP.", "danger");
+      if(!(days >= 1 && days <= 365)) return notice($("#admMsg"), "La duración debe estar entre 1 y 365 días.", "danger");
+      if(!(bonus >= 0 && bonus <= 100)) return notice($("#admMsg"), "El bonus debe estar entre 0 y 100.", "danger");
+      $("#adMdmGo").disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_setmadam", { p_token: this.me.token, p_cost: cost, p_days: days, p_bonus: bonus });
+        this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, active_n: (this.madam && this.madam.active_n) || 0 };
+        modalClose(); toast("🍺 Precios de la taberna guardados."); this.loadAdmin();
+      }catch(e){ $("#adMdmGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
   },
   admProdUser(u){

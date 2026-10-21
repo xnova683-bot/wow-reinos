@@ -527,3 +527,49 @@ end ;
 $$;
 revoke all on function public.wow_state(text) from public;
 grant execute on function public.wow_state(text) to anon, authenticated;
+
+-- ajustes de la taberna: coste, duracion y bonus del contrato de la Madam
+create or replace function public.wow_admin_setmadam(p_token text, p_cost numeric, p_days numeric, p_bonus numeric)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users;
+begin
+  a := _wow_admin(p_token);
+  if not (p_cost >= 0 and p_cost <= 100000) then raise exception 'El precio debe estar entre 0 y 100.000 CUP.'; end if;
+  if not (p_days >= 1 and p_days <= 365) then raise exception 'La duracion debe estar entre 1 y 365 dias.'; end if;
+  if not (p_bonus >= 0 and p_bonus <= 100) then raise exception 'El bonus debe estar entre 0 y 100.'; end if;
+  insert into wow_settings(key,val) values ('madam_cost', p_cost::text) on conflict (key) do update set val = excluded.val;
+  insert into wow_settings(key,val) values ('madam_days', p_days::text) on conflict (key) do update set val = excluded.val;
+  insert into wow_settings(key,val) values ('madam_bonus', p_bonus::text) on conflict (key) do update set val = excluded.val;
+  return jsonb_build_object('ok', true, 'cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth());
+end $$;
+revoke all on function public.wow_admin_setmadam(text, numeric, numeric, numeric) from public;
+grant execute on function public.wow_admin_setmadam(text, numeric, numeric, numeric) to anon, authenticated;
+
+-- lista de reinos para el admin (override): incluye los precios de la taberna
+create or replace function public.wow_admin_list(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+
+declare a wow_users; out jsonb; ms bigint;
+begin
+  a := _wow_admin(p_token);
+  perform _wow_resolve();
+  ms := (extract(epoch from now())*1000)::bigint;
+  select jsonb_build_object('now', ms, 'me', a.id, 'prod_mult', _wow_prod_global(), 'madam', jsonb_build_object('cost', _wow_madam_cost(), 'days', _wow_madam_days(), 'bonus', _wow_madam_bonusth(), 'active_n', (select count(*) from wow_tavern_contracts where until_ms > ms)), 'users', coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos,
+      'active', w.active, 'is_admin', w.is_admin,
+      'gold', floor(w.gold), 'wood', floor(w.wood), 'ore', floor(w.ore),
+      'cup', round(coalesce(w.cup,0), 2),
+      'prod_mult', _wow_prod_clamp(w.prod_mult),
+      'points', _wow_points(w.id),
+      'troops', coalesce((select sum(qty) from wow_troops where owner_id = w.id),0),
+      'alliance', coalesce((select tag from wow_alliances where id = w.alliance),''),
+      'created', w.created, 'last', w.last_ms
+    ) order by w.created)
+    from wow_users w
+  ), '[]')) into out;
+  return out;
+end ;
+$$;
+revoke all on function public.wow_admin_list(text) from public;
+grant execute on function public.wow_admin_list(text) to anon, authenticated;
