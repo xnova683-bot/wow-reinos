@@ -244,6 +244,15 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 .mktPub label{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--dim); flex-wrap:wrap}
 .mktPub select,.mktPub input{padding:8px 9px; border-radius:8px; background:#0f0b06; color:var(--txt); border:1px solid var(--line)}
 .mktPub input{width:96px}
+.tvBanner{position:relative; width:100%; border-radius:12px; overflow:hidden; border:1px solid var(--line); margin-bottom:12px}
+.tvBanner img{display:block; width:100%; height:auto}
+.tvOverlay{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:14px; background:linear-gradient(to bottom, rgba(10,7,3,.10), rgba(10,7,3,.55))}
+.tvBtns{display:flex; flex-wrap:wrap; gap:10px; justify-content:center}
+.tvBtns button{padding:11px 16px; border-radius:10px; background:rgba(20,13,6,.82); color:var(--gold); border:1px solid var(--gold2); cursor:pointer; font-size:14px; font-weight:bold; backdrop-filter:blur(2px)}
+.tvBtns button:hover:not(:disabled){background:rgba(212,160,23,.92); color:#1a1206}
+.tvBtns button:disabled{opacity:.55; cursor:not-allowed}
+.tvSoon{color:#f0e0b8; font-size:13px; text-shadow:0 2px 4px rgba(0,0,0,.9)}
+@media(max-width:520px){ .tvBtns button{font-size:12px; padding:9px 12px} }
 
 /* ---------- modal ---------- */
 .modalWrap{position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; padding:18px; z-index:60}
@@ -465,6 +474,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <button data-tab="chat">💬 Chat</button>
     <button data-tab="rank">🏆 Ranking</button>
     <button data-tab="market">🛒 Mercado</button>
+    <button data-tab="tavern">🍺 Taberna</button>
     <button data-tab="admin" id="tabBtnAdmin" class="hidden">🛡️ Gestión</button>
   </nav>
   </div>
@@ -478,6 +488,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     <section id="tabChat" class="tabpane hidden"></section>
     <section id="tabRank" class="tabpane hidden"></section>
     <section id="tabMarket" class="tabpane hidden"></section>
+    <section id="tabTavern" class="tabpane hidden"></section>
     <section id="tabAdmin" class="tabpane hidden"></section>
   </main>
 
@@ -512,5 +523,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <pre id="logPre"></pre>
 </div>
 
-    <script src="wow-app.js?v=20261020g"></script>
+    <script src="wow-app.js?v=20261020h"></script>
 </body></html>
