@@ -1807,7 +1807,7 @@ const Game = {
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
       ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) +        ' /h · 🔰 protección ' + un(prot) + ' pts · 💃 Madam ' + un((this.madam && this.madam.cost) != null ? this.madam.cost : 50) + ' CUP / ' + un((this.madam && this.madam.days) != null ? this.madam.days : 30) + 'd (recaudado ' + un((this.madam && this.madam.earned) || 0) + ' CUP) · ' + hora(d.now) + '</span>' +
-      '<button class="btn sm" id="admFee">⚙️ Comisión</button>' +
+      '<button class="btn sm" id="admFee">⚙️ Economía y protección</button>' +
        '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
        '<button class="btn sm" id="admTavern">🍺 Taberna</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
@@ -1871,7 +1871,7 @@ const Game = {
     const al0 = (this.aldeaShare != null) ? Number(this.aldeaShare) : 1;
     const al = al0 > 20 ? 20 : al0;
     const alt = this.aldeaRates || { gold: 100, wood: 100, ore: 100 };
-    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Ajustes de economía</h2>' +
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Economía y protección de novatos</h2>' +
       '<p class="hint">La <b>comisión</b> se descuenta de lo que recibe el vendedor y se destruye. El <b>tributo</b> es el % del valor del trato que va al tesoro de cada trono con dueño (se descuenta de la comisión).</p>' +
       '<div class="admInputs"><label>Comisión mercado (%)<input id="admFeeIn" type="number" min="0" max="90" value="' + f + '"></label>' +
       '<label>Tributo tronos (%)<input id="admThrIn" type="number" min="0" max="90" value="' + s + '"></label></div>' +
@@ -1886,7 +1886,7 @@ const Game = {
       '<div class="admInputs"><label>Oro /h<input id="admAldG" type="number" min="0" max="100000" value="' + un(alt.gold) + '"></label>' +
       '<label>Madera /h<input id="admAldW" type="number" min="0" max="100000" value="' + un(alt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admAldO" type="number" min="0" max="100000" value="' + un(alt.ore) + '"></label></div>' +
-      '<p class="hint" style="margin-top:12px">Protección de novatos: (1) los reinos con <b>menos</b> de estos puntos no pueden atacar ni ser atacados; (2) nadie puede atacar a un reino que esté <b>estos puntos o más</b> por debajo suyo (evita que los fuertes machaquen a los débiles). Pon 0 para desactivarla.</p>' +
+      '<p class="hint" style="margin-top:12px">🔰 Protección de novatos (aplica a <b>reinos, tronos y aldeas</b>, y a los ataques <b>individuales y conjuntos</b>): (1) quien tenga <b>menos</b> de estos puntos no puede atacar ni ser atacado; (2) no se puede atacar a un reino o a un lugar cuyo dueño o guarnición esté <b>estos puntos o más</b> por debajo tuyo (evita que los fuertes machaquen a los débiles); (3) en un ataque conjunto, un socio con tropas en protección bloquea toda la convocatoria. Pon <b>0</b> para desactivarla.</p>' +
       '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
       '<p class="hint" style="margin-top:12px">Reinos <b>en línea</b>: cuentan los reinos activos vistos en los últimos minutos indicados (el juego avisa cada 20 s mientras la pestaña está abierta).</p>' +
       '<div class="admInputs"><label>En línea (minutos)<input id="admOnIn" type="number" min="1" max="60" value="' + un(this.onlineMin != null ? this.onlineMin : 5) + '"></label></div>' +
