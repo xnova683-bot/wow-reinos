@@ -2757,6 +2757,12 @@ Game.openMadam = async function(){
       '<div style="text-align:center;margin-top:6px">' +
         '<button class="btn" id="mnHire">Contratar mineros x2 producción <span style="opacity:.7">· ' + mCost + ' CUP</span></button>' +
       '</div>';
+  }else{
+    minHtml =
+      '<hr style="margin:16px 0 10px;border:0;border-top:1px solid var(--line)">' +
+      '<h3 style="margin:0 0 8px">⛏️ Mineros y leñadores</h3>' +
+      '<div class="mLin" style="opacity:.85">No se pudo cargar el contrato de mineros.</div>' +
+      '<div style="text-align:center;margin-top:6px"><button class="btn sm" id="mnRetry">Reintentar</button></div>';
   }
   modal(
     '<h3 style="margin:0 0 8px">💃 La Madam</h3>' +
@@ -2767,6 +2773,19 @@ Game.openMadam = async function(){
     '</div>' +
     minHtml
   );
+  const mb2 = $("#mnHire");
+  if(mb2) mb2.onclick = async () => {
+    mb2.disabled = true;
+    try{
+      const hr = await sbRpc("wow_miner_hire", { p_token: Game.me.token });
+      toast("⛏️ Los mineros y leñadores trabajarán para ti: producción x2.");
+      if(Game.me) Game.me.cup = hr.cup;
+      modalClose();
+      Game.loadTavern && Game.loadTavern();
+    }catch(e){ toast(e.message, true); mb2.disabled = false; }
+  };
+  const mrt = $("#mnRetry");
+  if(mrt) mrt.onclick = () => Game.openMadam();
   const hb = $("#mdHire");
   if(hb) hb.onclick = async () => {
     hb.disabled = true;
