@@ -410,7 +410,7 @@ const Game = {
     if (ht) ht.classList.toggle("fac-horda", me.faction === "horda");
     const ab = $("#gAlly"); if(ab){ ab.textContent = ""; ab.style.display = "none"; }
     this.setAdminTab(!!me.is_admin);
-    try{ const p = await sbRpc("wow_protect_info", {}); this.protect = p && p.points; }catch(_){}
+    try{ const p = await sbRpc("wow_protect_info", {}); this.setProtects(p); }catch(_){}
     await this.refresh();
     if (this.me && this.me.id === "admin") this.setAdminTab(true);
     this.loop();
@@ -612,11 +612,22 @@ const Game = {
     }catch(e){ toast(shortMsg(e), true); }
   },
 
+  setProtects(p){
+    p = p || {};
+    this.protects = {
+      reino:  (p.reino    != null) ? Number(p.reino)    : (p.points != null ? Number(p.points) : 0),
+      trono:  (p.trono    != null) ? Number(p.trono)    : 0,
+      aldea:  (p.aldea    != null) ? Number(p.aldea)    : 0,
+      conjunto:(p.conjunto!= null) ? Number(p.conjunto) : 0
+    };
+    this.protect = this.protects.reino;
+  },
+
   /* ----- mapa ----- */
   async loadMap(){
     try{
       this.mapList = await sbRpc("wow_map", { p_token: this.me.token }) || [];
-      try{ const p = await sbRpc("wow_protect_info", {}); this.protect = p && p.points; }catch(_){}
+      try{ const p = await sbRpc("wow_protect_info", {}); this.setProtects(p); }catch(_){}
       try{ const ti = await sbRpc("wow_throne_info", { p_token: this.me.token }); this._thrones = (ti && ti.thrones) || []; }
       catch(_){ this._thrones = this._thrones || []; }
       try{ const ai = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this._aldeas = (ai && ai.aldeas) || []; }
@@ -643,7 +654,7 @@ const Game = {
         const r = byKey[c*N + s];
         if(r){
           const fac = r.faction === "horda" ? "horda" : "alianza";
-          const prot = this.protect;
+          const prot = (this.protects && this.protects.reino != null) ? this.protects.reino : this.protect;
           const shield = (prot != null && prot > 0 && !r.me && r.points < prot) ? "🔰 " : "";
           pins += `<div class="mPin ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}" style="left:${pc[0].toFixed(2)}%;top:${pc[1].toFixed(2)}%">
               <div class="mPinCastle">🏰</div>
@@ -845,7 +856,7 @@ const Game = {
     const myTag = (this.st && this.st.ally_tag) || "";
     const sameAlly = !!r.alliance && r.alliance === myTag;
     const peace = !!r.alliance && ((this._diplo && this._diplo.pacts) || []).some(p => r.alliance === (p.i_am_a ? p.b_tag : p.a_tag));
-    const prot = this.protect;
+    const prot = (this.protects && this.protects.reino != null) ? this.protects.reino : this.protect;
     const myPts = (this.st && this.st.points) || 0;
     const isNovice = (prot != null && prot > 0 && !r.me && r.points < prot);
     const tooWeak = (prot != null && prot > 0 && !r.me && !isNovice && (myPts - r.points) >= prot);
@@ -1286,18 +1297,18 @@ const Game = {
     const realms = (this.mapList || []).filter(r => !r.me && r.id !== this.me.id && !(r.alliance && (r.alliance === al.tag || r.alliance === al.name)));
     const thrones = (this._thrones || []).filter(t => t.holder_ally !== al.id);
     const aldeas = (this._aldeas || []).filter(a => a.holder_ally !== al.id);
-    const prot = this.protect;
+    const pset = this.protects || {};
     const myPts = (this.st && this.st.points) || 0;
-    const protMark = (pts) => {
+    const protMark = (pts, thr) => {
       const hp = (pts != null && pts !== "") ? Number(pts) : null;
-      if(prot == null || prot <= 0 || hp == null) return "";
-      if(hp < prot) return " 🔰 protegido";
-      if((myPts - hp) >= prot) return " ⚖️ mucha diferencia";
+      if(thr == null || thr <= 0 || hp == null) return "";
+      if(hp < thr) return " 🔰 protegido";
+      if((myPts - hp) >= thr) return " ⚖️ mucha diferencia";
       return "";
     };
-    const oRealm = realms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + (r.alliance ? " [" + esc(r.alliance) + "]" : "") + protMark(r.points) + '</option>').join("");
-    const oThrone = thrones.map(t => '<option value="' + t.node + '">' + esc(t.name) + ' · guarnición ' + un(t.garrison || 0) + protMark(t.holder_points) + '</option>').join("");
-    const oAldea = aldeas.map(a => '<option value="' + a.node + '">' + esc(a.name) + ' · guarnición ' + un(a.garrison || 0) + protMark(a.holder_points) + '</option>').join("");
+    const oRealm = realms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + (r.alliance ? " [" + esc(r.alliance) + "]" : "") + protMark(r.points, pset.reino) + '</option>').join("");
+    const oThrone = thrones.map(t => '<option value="' + t.node + '">' + esc(t.name) + ' · guarnición ' + un(t.garrison || 0) + protMark(t.holder_points, pset.trono) + '</option>').join("");
+    const oAldea = aldeas.map(a => '<option value="' + a.node + '">' + esc(a.name) + ' · guarnición ' + un(a.garrison || 0) + protMark(a.holder_points, pset.aldea) + '</option>').join("");
     modal(`<h2 style="margin-top:0;color:var(--gold)">🚩 Convocar ataque conjunto</h2>
       <p style="color:var(--dim);font-size:13px">Se unen las tropas de la alianza contra un objetivo común: una sola batalla con el ejército unido y el botín repartido en proporción a lo que aporta cada miembro.</p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
@@ -1754,7 +1765,7 @@ const Game = {
       try{ const f = await sbRpc("wow_market_fee", {}); this.mktFee = f && f.fee; }catch(_){ this.mktFee = this.mktFee; }
       try{ const g = await sbRpc("wow_throne_info", { p_token: this.me.token }); this.throneShare = g && g.share; this.throneRates = (g && g.rates) || this.throneRates; }catch(_){ this.throneShare = this.throneShare; }
       try{ const a = await sbRpc("wow_aldea_info", { p_token: this.me.token }); this.aldeaShare = a && a.share; this.aldeaRates = (a && a.rates) || this.aldeaRates; }catch(_){ this.aldeaShare = this.aldeaShare; }
-      try{ const pr = await sbRpc("wow_protect_info", {}); this.protect = pr && pr.points; }catch(_){ this.protect = this.protect; }
+      try{ const pr = await sbRpc("wow_protect_info", {}); this.setProtects(pr); }catch(_){ this.protect = this.protect; }
       try{ const o = await sbRpc("wow_online_info", {}); this.onlineMin = o && o.min; }catch(_){ this.onlineMin = this.onlineMin; }
       try{ const pp = await sbRpc("wow_prod_info", {}); this.prodMult = pp && pp.mult; }catch(_){ this.prodMult = this.prodMult; }
       this.prodMult = (this.adm && this.adm.prod_mult != null) ? this.adm.prod_mult : this.prodMult;
@@ -1766,7 +1777,8 @@ const Game = {
   },
   renderAdmin(){
     const el = $("#tabAdmin"), d = this.adm; if(!el) return;
-    const prot = (this.protect != null) ? this.protect : 1000;
+    const pset = this.protects || {reino:0,trono:0,aldea:0,conjunto:0};
+    const prot = (pset.reino != null) ? pset.reino : 0;
     if(!d){ el.innerHTML = '<p class="empty">Sin datos.</p>'; return; }
     const users = d.users || [];
     const autos = this.bots || [];
@@ -1806,7 +1818,7 @@ const Game = {
     }).join("");
     el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">🛡️ Gestión</h2>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="hint" style="flex:1">' + users.length +
-      ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) +        ' /h · 🔰 protección ' + un(prot) + ' pts · 💃 Madam ' + un((this.madam && this.madam.cost) != null ? this.madam.cost : 50) + ' CUP / ' + un((this.madam && this.madam.days) != null ? this.madam.days : 30) + 'd (recaudado ' + un((this.madam && this.madam.earned) || 0) + ' CUP) · ' + hora(d.now) + '</span>' +
+      ' reinos · 🟢 ' + un(cntOn) + ' en línea · ⚫ ' + un(users.length - cntOn) + ' ausentes (≤ ' + un(this.onlineMin != null ? this.onlineMin : 5) + ' min) · comisión mercado ' + un(this.mktFee != null ? this.mktFee : 20) + '% · tributo tronos ' + un(this.throneShare != null ? this.throneShare : 1) + '% · tronos +' + un((this.throneRates||{}).gold!=null?this.throneRates.gold:100) + '/' + un((this.throneRates||{}).wood!=null?this.throneRates.wood:100) + '/' + un((this.throneRates||{}).ore!=null?this.throneRates.ore:100) + ' /h · tributo aldeas ' + un(this.aldeaShare != null ? this.aldeaShare : 1) + '% · aldeas +' + un((this.aldeaRates||{}).gold!=null?this.aldeaRates.gold:100) + '/' + un((this.aldeaRates||{}).wood!=null?this.aldeaRates.wood:100) + '/' + un((this.aldeaRates||{}).ore!=null?this.aldeaRates.ore:100) +        ' /h · 🔰 protección (reinos ' + un(pset.reino) + ' · tronos ' + un(pset.trono) + ' · aldeas ' + un(pset.aldea) + ' · conjuntos ' + un(pset.conjunto) + ') · 💃 Madam ' + un((this.madam && this.madam.cost) != null ? this.madam.cost : 50) + ' CUP / ' + un((this.madam && this.madam.days) != null ? this.madam.days : 30) + 'd (recaudado ' + un((this.madam && this.madam.earned) || 0) + ' CUP) · ' + hora(d.now) + '</span>' +
       '<button class="btn sm" id="admFee">⚙️ Economía y protección</button>' +
        '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
        '<button class="btn sm" id="admTavern">🍺 Taberna</button>' +
@@ -1865,6 +1877,7 @@ const Game = {
     }catch(e){ box.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; }
   },
   admFee(){
+    const pv = this.protects || {reino:0,trono:0,aldea:0,conjunto:0};
     const f = (this.mktFee != null) ? this.mktFee : 20;
     const s = (this.throneShare != null) ? this.throneShare : 1;
     const rt = this.throneRates || { gold: 100, wood: 100, ore: 100 };
@@ -1886,12 +1899,23 @@ const Game = {
       '<div class="admInputs"><label>Oro /h<input id="admAldG" type="number" min="0" max="100000" value="' + un(alt.gold) + '"></label>' +
       '<label>Madera /h<input id="admAldW" type="number" min="0" max="100000" value="' + un(alt.wood) + '"></label>' +
       '<label>Mineral /h<input id="admAldO" type="number" min="0" max="100000" value="' + un(alt.ore) + '"></label></div>' +
-      '<p class="hint" style="margin-top:12px">🔰 Protección de novatos (aplica a <b>reinos, tronos y aldeas</b>, y a los ataques <b>individuales y conjuntos</b>): (1) quien tenga <b>menos</b> de estos puntos no puede atacar ni ser atacado; (2) no se puede atacar a un reino o a un lugar cuyo dueño o guarnición esté <b>estos puntos o más</b> por debajo tuyo (evita que los fuertes machaquen a los débiles); (3) en un ataque conjunto, un socio con tropas en protección bloquea toda la convocatoria. Pon <b>0</b> para desactivarla.</p>' +
-      '<div class="admInputs"><label>Protección de novatos (puntos)<input id="admProtIn" type="number" min="0" max="1000000" value="' + un(this.protect != null ? this.protect : 1000) + '"></label></div>' +
+      '<p class="hint" style="margin-top:12px">🔰 <b>Protección de novatos</b>: 4 umbrales independientes. Con <b>0</b> esa protección queda desactivada.</p>' +
+      '<div class="admInputs">' +
+        '<label>🏰 Reinos (puntos)<input id="admProtReino" type="number" min="0" max="1000000" value="' + un(pv.reino) + '"></label>' +
+        '<label>👑 Tronos (puntos)<input id="admProtTrono" type="number" min="0" max="1000000" value="' + un(pv.trono) + '"></label>' +
+        '<label>🏘️ Aldeas (puntos)<input id="admProtAldea" type="number" min="0" max="1000000" value="' + un(pv.aldea) + '"></label>' +
+        '<label>🚩 Ataques múltiples (puntos)<input id="admProtConj" type="number" min="0" max="1000000" value="' + un(pv.conjunto) + '"></label>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:8px">🏰 <b>Reinos</b>: quien tenga menos de estos puntos no puede atacar ni ser atacado, y nadie puede atacar a un reino que esté estos puntos o más por debajo suyo. 👑 <b>Tronos</b> y 🏘️ <b>Aldeas</b>: no se puede atacar un lugar cuyo dueño o guarnición tenga menos de estos puntos, ni uno que esté estos puntos o más por debajo tuyo. 🚩 <b>Ataques múltiples</b>: en una convocatoria conjunta, el jefe con menos de estos puntos no puede lanzarla y un socio con tropas por debajo bloquea toda la convocatoria.</p>' +
+      '<div style="text-align:center;margin-top:10px"><button class="btn sm" id="admProtOff">Apagar todas las protecciones</button></div>' +
       '<p class="hint" style="margin-top:12px">Reinos <b>en línea</b>: cuentan los reinos activos vistos en los últimos minutos indicados (el juego avisa cada 20 s mientras la pestaña está abierta).</p>' +
       '<div class="admInputs"><label>En línea (minutos)<input id="admOnIn" type="number" min="1" max="60" value="' + un(this.onlineMin != null ? this.onlineMin : 5) + '"></label></div>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="admGo">Guardar</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>');
+    const offf = $("#admProtOff");
+    if(offf) offf.onclick = () => {
+      ["#admProtReino","#admProtTrono","#admProtAldea","#admProtConj"].forEach(sel => { const el = $(sel); if(el) el.value = 0; });
+    };
     $("#admGo").onclick = async () => {
       const v = Number($("#admFeeIn").value);
       const sv = Number($("#admThrIn").value);
@@ -1902,14 +1926,19 @@ const Game = {
       const ag = Number($("#admAldG").value);
       const aw = Number($("#admAldW").value);
       const ao = Number($("#admAldO").value);
-      const pr = Number($("#admProtIn").value);
-      const onm = Number($("#admOnIn").value);
+      const pr = {
+        reino: Number($("#admProtReino").value),
+        trono: Number($("#admProtTrono").value),
+        aldea: Number($("#admProtAldea").value),
+        conjunto: Number($("#admProtConj").value)
+      };
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo de tronos debe estar entre 0 y 90.", "danger");
       if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción de tronos debe ser 0 o mayor.", "danger");
       if(!(av >= 0.01 && av <= 20)) return notice($("#admMsg"), "El tributo de aldeas debe estar entre 0,01 y 20.", "danger");
       if(!(ag >= 0 && aw >= 0 && ao >= 0)) return notice($("#admMsg"), "La producción de aldeas debe ser 0 o mayor.", "danger");
-      if(!(pr >= 0 && pr <= 1000000)) return notice($("#admMsg"), "La protección debe estar entre 0 y 1.000.000 puntos.", "danger");
+      if(!(pr.reino >= 0 && pr.reino <= 1000000 && pr.trono >= 0 && pr.trono <= 1000000 && pr.aldea >= 0 && pr.aldea <= 1000000 && pr.conjunto >= 0 && pr.conjunto <= 1000000))
+        return notice($("#admMsg"), "Las protecciones deben estar entre 0 y 1.000.000 puntos.", "danger");
       if(!(onm >= 1 && onm <= 60)) return notice($("#admMsg"), "El tiempo en línea debe estar entre 1 y 60 minutos.", "danger");
       $("#admGo").disabled = true;
       try{
@@ -1918,10 +1947,10 @@ const Game = {
         await sbRpc("wow_admin_setthrones", { p_token: this.me.token, p_gold: rg, p_wood: rw, p_ore: ro });
         await sbRpc("wow_admin_setaldeashare", { p_token: this.me.token, p_pct: av });
         await sbRpc("wow_admin_setaldeas", { p_token: this.me.token, p_gold: ag, p_wood: aw, p_ore: ao });
-        await sbRpc("wow_admin_setprotect", { p_token: this.me.token, p_pts: pr });
+        await sbRpc("wow_admin_setprotects", { p_token: this.me.token, p_vals: pr });
         await sbRpc("wow_admin_setonline", { p_token: this.me.token, p_min: onm });
         this.mktFee = v; this.throneShare = sv; this.throneRates = { gold: rg, wood: rw, ore: ro };
-        this.aldeaShare = av; this.aldeaRates = { gold: ag, wood: aw, ore: ao }; this.protect = pr;
+        this.aldeaShare = av; this.aldeaRates = { gold: ag, wood: aw, ore: ao }; this.setProtects(pr);
         this.onlineMin = onm;
         modalClose(); toast("Ajustes guardados."); this.loadAdmin();
       }catch(e){ $("#admGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
@@ -2590,20 +2619,25 @@ Game.openFort = async function(node, kind){
     if(this.st && this.st.pos != null && this.st.pos >= 0){
       body += '<div class="muted" style="margin-top:8px">⏱ Tus tropas tardan ~' + travelNodes(mapPosNode(this.st.pos), node) + ' s en llegar.</div>';
     }
-    const prot = this.protect;
+    const pset = this.protects || {};
+    const prot = (pset.reino != null) ? pset.reino : this.protect;
+    const pprot = (kind === "aldea") ? pset.aldea : pset.trono;
     const myPts = (this.st && this.st.points) || 0;
     const hpts = (t && t.holder_points != null) ? Number(t.holder_points) : null;
-    const isProt = (prot != null && prot > 0 && hpts != null && hpts < prot);
-    const tooWeak = (prot != null && prot > 0 && hpts != null && !isProt && (myPts - hpts) >= prot);
-    const canAtk = !isProt && !tooWeak;
+    const isNov = (prot != null && prot > 0 && myPts < prot);
+    const isProt = (pprot != null && pprot > 0 && hpts != null && hpts < pprot);
+    const tooWeak = (pprot != null && pprot > 0 && hpts != null && !isProt && (myPts - hpts) >= pprot);
+    const canAtk = !isNov && !isProt && !tooWeak;
     if(!own){
       body += '<div class="muted" style="margin-top:10px">Enviar desde tu reino</div>';
-      if(isProt){
-        body += '<div class="muted" style="color:var(--gold);margin-top:6px">🔰 Este lugar está protegido por ser de un novato (menos de ' + un(prot) + ' puntos): no puedes atacarlo.</div>';
+      if(isNov){
+        body += '<div class="muted" style="color:var(--gold);margin-top:6px">🔰 Estás en protección de novatos (menos de ' + un(prot) + ' puntos): no puedes atacar.</div>';
+      }else if(isProt){
+        body += '<div class="muted" style="color:var(--gold);margin-top:6px">🔰 Este lugar está protegido por ser de un novato (menos de ' + un(pprot) + ' puntos): no puedes atacarlo.</div>';
       }else if(tooWeak){
-        body += '<div class="muted" style="margin-top:6px">⚖️ Hay demasiada diferencia de puntos (' + un(prot) + '): busca un rival más parejo.</div>';
+        body += '<div class="muted" style="margin-top:6px">⚖️ Hay demasiada diferencia de puntos (' + un(pprot) + '): busca un rival más parejo.</div>';
       }
-      if(isProt || tooWeak){
+      if(isNov || isProt || tooWeak){
         body += '<div class="muted" style="margin-top:6px">No puedes atacar este lugar ahora mismo.</div>';
       }else if(!troops.length){
         body += '<div class="muted">No tienes tropas. Entrena en el Cuartel (pestaña ⚔️ Tropas).</div>';

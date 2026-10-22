@@ -130,30 +130,32 @@ begin
 end $$;
 revoke all on function public._wow_node_protect(integer) from public, anon, authenticated;
 
--- Un objetivo (reino o lugar) se puede atacar con estos puntos y este
--- umbral de proteccion: el atacante llega al umbral, la parte protegida
--- tambien y la diferencia no llega al umbral.
-create or replace function public._wow_target_attack_ok(p_kind text, p_ref text, p_node integer, p_prot numeric, p_pts numeric)
+-- Un objetivo (reino o lugar) se puede atacar con estos puntos:
+-- el atacante llega al umbral de reinos, la parte protegida tambien y la
+-- diferencia no llega al umbral que corresponda al tipo de objetivo.
+drop function if exists public._wow_target_attack_ok(text, text, integer, numeric, numeric);
+create or replace function public._wow_target_attack_ok(p_kind text, p_ref text, p_node integer, p_pts numeric)
 returns boolean language plpgsql stable security definer set search_path to 'public' as $$
 
-declare tpts numeric;
+declare tpts numeric; prot numeric; tprot numeric;
 begin
-  if p_prot is null or p_prot <= 0 then return true; end if;
-  if p_pts is not null and p_pts < p_prot then return false; end if;
+  prot := _wow_protect_reino();
+  if prot > 0 and p_pts is not null and p_pts < prot then return false; end if;
   if p_kind = 'reino' then
+    tprot := prot;
     select _wow_points(p_ref) into tpts;
     if tpts is null then return false; end if;
-    if tpts < p_prot then return false; end if;
-    if p_pts is not null and (p_pts - tpts) >= p_prot then return false; end if;
-    return true;
+  else
+    tprot := case when p_kind = 'aldea' then _wow_protect_aldea() else _wow_protect_trono() end;
+    select (_wow_node_protect(p_node)->>'points')::numeric into tpts;
+    if tpts is null then return true; end if;
   end if;
-  select (_wow_node_protect(p_node)->>'points')::numeric into tpts;
-  if tpts is null then return true; end if;
-  if tpts < p_prot then return false; end if;
-  if p_pts is not null and (p_pts - tpts) >= p_prot then return false; end if;
+  if tprot is null or tprot <= 0 then return true; end if;
+  if tpts < tprot then return false; end if;
+  if p_pts is not null and (p_pts - tpts) >= tprot then return false; end if;
   return true;
 end $$;
-revoke all on function public._wow_target_attack_ok(text, text, integer, numeric, numeric) from public, anon, authenticated;
+revoke all on function public._wow_target_attack_ok(text, text, integer, numeric) from public, anon, authenticated;
 
 -- ----------------------------------------------------------------
 -- 3) Info de nodos: dueño visible + "es mio / de mi alianza"
@@ -341,7 +343,7 @@ revoke all on function public._wow_throne_land(bigint) from public, anon, authen
 create or replace function public.wow_throne_attack(p_token text, p_node integer, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare u wow_users; t wow_thrones; ms bigint; army jsonb; z record; travel integer;
-        protect numeric; tpts numeric; pr jsonb;
+        protect numeric; tpts numeric; pr jsonb; plprot numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -354,17 +356,20 @@ begin
   if t.node is null then raise exception 'Trono no válido.'; end if;
   if t.holder_ally is not null and t.holder_ally = u.alliance then
     raise exception 'Ese lugar ya es de tu alianza.'; end if;
-  protect := _wow_protect_below();
+  protect := _wow_protect_reino();
+  plprot := case when t.kind = 'aldea' then _wow_protect_aldea() else _wow_protect_trono() end;
   if protect > 0 then
     if not u.is_admin and _wow_points(u.id) < protect then
       raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
+  end if;
+  if plprot > 0 then
     pr := _wow_node_protect(t.node);
     if (pr->>'points') is not null then
       tpts := (pr->>'points')::numeric;
-      if tpts < protect then
-        raise exception 'Ese lugar está protegido por ser de un novato (menos de % puntos).', trunc(protect)::int; end if;
-      if not u.is_admin and (_wow_points(u.id) - tpts) >= protect then
-        raise exception 'No puedes atacar a un lugar cuyo dueño es mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
+      if tpts < plprot then
+        raise exception 'Ese lugar está protegido por ser de un novato (menos de % puntos).', trunc(plprot)::int; end if;
+      if not u.is_admin and (_wow_points(u.id) - tpts) >= plprot then
+        raise exception 'No puedes atacar a un lugar cuyo dueño es mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(plprot)::int; end if;
     end if;
   end if;
   if exists(select 1 from wow_fleets where attacker = u.id and node = p_node and state = 'outbound') then
@@ -676,7 +681,7 @@ begin
         end if;
       end if;
       if node is null then
-        prot := _wow_protect_below();
+        prot := _wow_protect_reino();
         tgt := null;
         -- b) si su alianza esta en guerra, va a por el reino enemigo (asi luchan juntos y suman para la alianza)
         if ua is not null then

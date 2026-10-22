@@ -27,29 +27,96 @@ begin
 end $$;
 grant execute on function public.wow_check(text) to anon, authenticated;
 
--- proteccion de novatos: por debajo de N puntos no se puede atacar ni ser atacado
+-- Proteccion de novatos: 4 umbrales independientes. Cada uno con su propio
+-- ajuste en wow_settings y con 0 = proteccion desactivada.
+--   protect_reino    -> reinos (jugador novato, reino objetivo y diferencia de puntos)
+--   protect_trono    -> tronos
+--   protect_aldea    -> aldeas
+--   protect_conjunto -> ataques multiples (convocatorias conjuntas)
+create or replace function public._wow_protect_val(p_key text)
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select coalesce((select val::numeric from wow_settings where key = p_key), 0)
+$$;
+revoke all on function public._wow_protect_val(text) from public, anon, authenticated;
+
+create or replace function public._wow_protect_reino()
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select _wow_protect_val('protect_reino')
+$$;
+revoke all on function public._wow_protect_reino() from public, anon, authenticated;
+
+create or replace function public._wow_protect_trono()
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select _wow_protect_val('protect_trono')
+$$;
+revoke all on function public._wow_protect_trono() from public, anon, authenticated;
+
+create or replace function public._wow_protect_aldea()
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select _wow_protect_val('protect_aldea')
+$$;
+revoke all on function public._wow_protect_aldea() from public, anon, authenticated;
+
+create or replace function public._wow_protect_conjunto()
+returns numeric language sql stable security definer set search_path to 'public' as $$
+  select _wow_protect_val('protect_conjunto')
+$$;
+revoke all on function public._wow_protect_conjunto() from public, anon, authenticated;
+
+-- antiguo: ahora es el umbral de reinos (se conserva por compatibilidad)
 create or replace function public._wow_protect_below()
 returns numeric language sql stable security definer set search_path to 'public' as $$
-  select coalesce((select val::numeric from wow_settings where key = 'protect_below'), 1000)
+  select _wow_protect_reino()
 $$;
 revoke all on function public._wow_protect_below() from public, anon, authenticated;
 
 create or replace function public.wow_protect_info()
 returns jsonb language sql stable security definer set search_path to 'public' as $$
-  select jsonb_build_object('points', _wow_protect_below())
+  select jsonb_build_object('reino', _wow_protect_reino(), 'trono', _wow_protect_trono(),
+                            'aldea', _wow_protect_aldea(), 'conjunto', _wow_protect_conjunto(),
+                            'points', _wow_protect_reino())
 $$;
 grant execute on function public.wow_protect_info() to anon, authenticated;
 
--- ajustar umbral de proteccion de novatos (solo admin)
+-- guardar los 4 umbrales de una vez (solo admin). 0 = proteccion desactivada.
+create or replace function public.wow_admin_setprotects(p_token text, p_vals jsonb)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare a wow_users; k text; v numeric; sk text;
+begin
+  a := _wow_admin(p_token);
+  if p_vals is null or jsonb_typeof(p_vals) <> 'object' then
+    raise exception 'Ajustes de proteccion no validos.'; end if;
+  foreach k in array array['reino','trono','aldea','conjunto'] loop
+    sk := 'protect_' || k;
+    if p_vals ? k then
+      begin v := (p_vals->>k)::numeric; exception when others then v := null; end;
+    elsif p_vals ? sk then
+      begin v := (p_vals->>sk)::numeric; exception when others then v := null; end;
+    else
+      continue;
+    end if;
+    if v is null or v < 0 or v > 1000000 then
+      raise exception 'La proteccion debe estar entre 0 y 1.000.000 puntos.'; end if;
+    insert into wow_settings(key, val) values (sk, v::text)
+      on conflict (key) do update set val = excluded.val;
+  end loop;
+  return jsonb_build_object('ok', true, 'reino', _wow_protect_reino(), 'trono', _wow_protect_trono(),
+                            'aldea', _wow_protect_aldea(), 'conjunto', _wow_protect_conjunto());
+end $$;
+grant execute on function public.wow_admin_setprotects(text, jsonb) to anon, authenticated;
+
+-- antiguo: ajusta los 4 umbrales al mismo numero (solo admin)
 create or replace function public.wow_admin_setprotect(p_token text, p_pts numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users;
+declare a wow_users; k text;
 begin
   a := _wow_admin(p_token);
   if p_pts is null or p_pts < 0 or p_pts > 1000000 then
-    raise exception 'La protección debe estar entre 0 y 1.000.000 puntos.'; end if;
-  insert into wow_settings(key, val) values ('protect_below', p_pts::text)
-    on conflict (key) do update set val = excluded.val;
+    raise exception 'La proteccion debe estar entre 0 y 1.000.000 puntos.'; end if;
+  foreach k in array array['protect_reino','protect_trono','protect_aldea','protect_conjunto'] loop
+    insert into wow_settings(key, val) values (k, p_pts::text)
+      on conflict (key) do update set val = excluded.val;
+  end loop;
   return jsonb_build_object('ok', true, 'points', p_pts);
 end $$;
 grant execute on function public.wow_admin_setprotect(text, numeric) to anon, authenticated;
@@ -231,7 +298,7 @@ begin
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
   if t.is_admin then raise exception 'No puedes atacar a un administrador.'; end if;
-  protect := _wow_protect_below();
+  protect := _wow_protect_reino();
   if protect > 0 then
     if _wow_points(t.id) < protect then
       raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;

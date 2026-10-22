@@ -175,7 +175,7 @@ begin
   perform _wow_resolve();
   ms := (extract(epoch from now())*1000)::bigint;
   umin := _wow_online_min();
-  return jsonb_build_object('now', ms, 'auto', _wow_bot_auto() > 0, 'protect', _wow_protect_below(),
+  return jsonb_build_object('now', ms, 'auto', _wow_bot_auto() > 0, 'protect', _wow_protect_reino(),
     'bots', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', w.id, 'name', w.name, 'faction', w.faction, 'pos', w.pos, 'level', b.level,
@@ -346,7 +346,7 @@ begin
       if node is not null then
         begin perform wow_throne_attack(tok, node, army); exception when others then null; end;
       else
-        prot := _wow_protect_below();
+        prot := _wow_protect_reino();
         select w.alliance into ua from wow_users w where w.id = p_id;
         tgt := null;
         -- b) si su alianza esta en guerra, va a por el enemigo (asi luchan juntos y suman para la alianza)

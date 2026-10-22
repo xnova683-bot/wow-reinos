@@ -477,7 +477,7 @@ begin
   if p_target = u.id then raise exception 'No puedes atacarte a ti mismo.'; end if;
   select * into t from wow_users where id = p_target and active;
   if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
-  protect := _wow_protect_below();
+  protect := _wow_protect_reino();
   if protect > 0 then
     if _wow_points(t.id) < protect then
       raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
