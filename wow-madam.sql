@@ -281,7 +281,7 @@ begin
   end loop;
   return jsonb_build_object('winner',winner,'rout',rout,'rounds',rounds,
     'a_start',astart,'d_start',dstart,'a_left',aleft,'d_left',dleft,'a_loss',aloss,'d_loss',dloss,
-    'a_morale',round(morA),'d_morale',round(morD));
+    'a_morale',round(morA),'d_morale',round(morD),'a_bonus',abon,'d_bonus',dbon);
 end ;
 $$;
 revoke all on function public._wow_sim(jsonb, jsonb, integer, bigint, numeric, numeric, numeric, numeric, numeric, numeric) from public, anon, authenticated;

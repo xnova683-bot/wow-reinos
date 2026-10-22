@@ -64,6 +64,15 @@ function notice(el, text, cls){
   el.className = "notice" + (cls ? " " + cls : "");
 }
 const hora = ms => { try{ return new Date(Number(ms)).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }); }catch(_){ return ""; } };
+const CUBA_FMT = (() => { try{ return new Intl.DateTimeFormat("es-CU", { timeZone: "America/Havana", hour12: true, hour: "2-digit", minute: "2-digit" }); }catch(_){ return null; } })();
+const horaCuba = ms => {
+  try{
+    if(!CUBA_FMT) return hora(ms);
+    return CUBA_FMT.format(new Date(Number(ms)))
+      .replace(/\s*p\.?\s*m\.?\s*$/i, " PM")
+      .replace(/\s*a\.?\s*m\.?\s*$/i, " AM");
+  }catch(_){ return hora(ms); }
+};
 function modalClose(){ const m = $("#modal"); if(m) m.classList.add("hidden"); }
 function modal(html){
   const m = $("#modal"), box = $("#modalBox"); if(!m || !box) return;
@@ -957,8 +966,12 @@ const Game = {
       `<span>⚔️ -${un(x.aLoss)} · 🛡️ -${un(x.dLoss)}</span>` +
       `<span>quedan ⚔️ ${un(x.aLeft)} / 🛡️ ${un(x.dLeft)}</span>` +
       `<span>moral ${x.aMor} / ${x.dMor}</span></div>`).join("");
+    const ab = Number(b.a_bonus || 0), db = Number(b.d_bonus || 0);
+    const bon = (ab > 0 || db > 0)
+      ? `<div style="color:var(--green);font-size:13px;margin:6px 0">💃 Bonificación de tropas: ⚔️ +${dec(ab)}/tropa · 🛡️ +${dec(db)}/tropa</div>`
+      : "";
     return `<div class="btl ${win ? "btlWin" : "btlLose"}">
-      <div class="btlHead">${win ? "🏆 Victoria del atacante" : "🛡️ El defensor resiste"} · ${nR} ronda${nR === 1 ? "" : "s"} · ${rout}</div>
+      <div class="btlHead">${win ? "🏆 Victoria del atacante" : "🛡️ El defensor resiste"} · ${nR} ronda${nR === 1 ? "" : "s"} · ${rout}</div>${bon}
       <div class="btlVs">
         <div class="btlS atk"><span class="btlLbl">⚔️ Atacante</span><span class="btlN">${un(totA)}</span><span class="btlD2">tropas iniciales</span></div>
         <div class="btlVor">VS</div>
@@ -1075,7 +1088,7 @@ const Game = {
         }else if(r.a_loss != null) det += `Bajas: ${un(r.a_loss)} atacante / ${un(r.d_loss)} defensor. `;
         const l = r.loot || {};
         if((l.gold||0)+(l.wood||0)+(l.ore||0) > 0) det += `Botín: 💰${un(l.gold)} 🪵${un(l.wood)} ⛏️${un(l.ore)}.`;
-        html += `<div class="rep ${cls}"><div>${title}</div><div class="rl">${det}<span style="color:var(--dim)">${hora(r.created)}</span></div></div>`;
+        html += `<div class="rep ${cls}"><div>${title}</div><div class="rl">${det}<span style="color:var(--green)">${horaCuba(r.created)}</span></div></div>`;
       });
     }
     html += `<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
