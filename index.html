@@ -68,6 +68,8 @@ input:focus{outline:none; border-color:var(--gold2)}
 .pts{color:var(--dim); font-size:13px}
 .pts b{color:var(--gold)}
 .online{color:#7fe08a; font-size:13px; white-space:nowrap}
+.clock{color:var(--gold); font-size:13px; font-weight:bold; white-space:nowrap; font-variant-numeric:tabular-nums; background:rgba(20,13,6,.62); border:1px solid var(--gold2); border-radius:8px; padding:4px 8px}
+@media(max-width:620px){ .topR{flex-wrap:wrap; justify-content:flex-end} .clock{order:-1} }
 .resBar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
 .prodBadge{display:inline-flex; align-items:center; padding:4px 10px; border-radius:8px; background:#2a1f08; border:1px solid var(--gold, #c9a227); color:var(--gold, #c9a227); font-size:12px; font-weight:bold}
 .res{flex:1; min-width:120px; background:linear-gradient(rgba(36,26,16,.62),rgba(26,18,9,.62)); backdrop-filter:blur(3px); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
@@ -460,6 +462,7 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <div class="top">
     <div><span class="realmName" id="gName"></span><span class="facBadge" id="gFac"></span><span class="allyBadge" id="gAlly"></span></div>
     <div class="topR">
+      <span class="clock" id="gClock" title="Hora de Cuba">🇨🇺 --:--:--</span>
       <span class="online" id="gOnline">🟢 0 en línea</span>
       <span class="pts">Puntos: <b id="gPts">0</b></span>
       <button class="btn sm" id="btnAcct">👤 Cuenta</button>
@@ -536,5 +539,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <pre id="logPre"></pre>
 </div>
 
-    <script src="wow-app.js?v=20261022h"></script>
+    <script src="wow-app.js?v=20261022i"></script>
 </body></html>

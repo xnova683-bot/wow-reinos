@@ -319,6 +319,7 @@ const Auth = {
         if(Game.tab === "admin") Game.loadAdmin();
       };
     });
+    this.startClock();
     this.portal();
     const tok = localStorage.getItem("wow_token");
     if(tok){
@@ -2583,6 +2584,29 @@ Game.mktTake = async function(id){
     toast("🤝 Tomaste " + dec(r.took) + " · pagaste " + dec(r.paid) + ".");
     await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
+};
+Game.startClock = function(){
+  if(this._clockTimer) return;
+  let fmt;
+  try{
+    fmt = new Intl.DateTimeFormat("es-CU", { timeZone: "America/Havana", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }catch(e){ fmt = null; }
+  const upd = () => {
+    const el = $("#gClock");
+    if(!el) return;
+    let txt;
+    if(fmt){
+      txt = fmt.format(new Date());
+    }else{
+      const d = new Date();
+      const utc = d.getTime() + d.getTimezoneOffset() * 60000;
+      const cuba = new Date(utc - 5 * 3600000);
+      txt = [cuba.getHours(), cuba.getMinutes(), cuba.getSeconds()].map(n => String(n).padStart(2, "0")).join(":");
+    }
+    el.textContent = "🇨🇺 " + txt;
+  };
+  upd();
+  this._clockTimer = setInterval(upd, 1000);
 };
 Game.loadTavern = async function(){
   const el = $("#tabTavern"); if(!el) return;
