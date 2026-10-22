@@ -73,7 +73,14 @@ const horaCuba = ms => {
       .replace(/\s*a\.?\s*m\.?\s*$/i, " AM");
   }catch(_){ return hora(ms); }
 };
-function modalClose(){ const m = $("#modal"); if(m) m.classList.add("hidden"); }
+function modalClose(){
+  const m = $("#modal"); if(m) m.classList.add("hidden");
+  try{
+    if(typeof Game !== "undefined" && Game._onModalClose){
+      const f = Game._onModalClose; Game._onModalClose = null; f();
+    }
+  }catch(_){}
+}
 function modal(html){
   const m = $("#modal"), box = $("#modalBox"); if(!m || !box) return;
   box.innerHTML = html + '<div style="text-align:center;margin-top:16px"><button class="btn sm" id="modalClose">Cerrar</button></div>';
@@ -2029,6 +2036,18 @@ const Game = {
       '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, igual que el pago a la Madam (según los % de arriba). Cada reino puede comprar como máximo el <b>límite</b> de cada tropa en cualquier ventana de 24 h. · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
       '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMcGo">Guardar mercenarios</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
+      '<h3 style="margin:18px 0 6px;color:var(--gold)">🎰 Ruleta El Dorado</h3>' +
+      '<div class="admInputs">' +
+        '<label>Entrada (CUP)<input id="adRlCost" type="number" min="1" max="10000" value="10"></label>' +
+        '<label>Duración (minutos)<input id="adRlMin" type="number" min="1" max="1440" value="10"></label>' +
+        '<label>% al ganador<input id="adRlWin" type="number" min="0" max="100" step="0.01" value="90"></label>' +
+        '<label>% al admin<input id="adRlAdm" type="number" min="0" max="100" step="0.01" value="5"></label>' +
+        '<label>% tronos y aldeas<input id="adRlShr" type="number" min="0" max="100" step="0.01" value="5"></label>' +
+        '<label>Estado<select id="adRlOn"><option value="1">Abierta</option><option value="0">Cerrada</option></select></label>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:6px">Ruleta <b>global</b> para todos los reinos. Los cambios se aplican a la ronda siguiente. · Rondas: <b><span id="adRlRounds">…</span></b> · Recaudado: <b><span id="adRlEarned">…</span> CUP</b> · Premios: <b><span id="adRlPaid">…</span> CUP</b> · Admin: <b><span id="adRlAdmEarned">…</span> CUP</b> · Tronos y aldeas: <b><span id="adRlShrEarned">…</span> CUP</b>.</p>' +
+      '<div style="text-align:center;margin-top:10px"><button class="btn" id="adRlGo">Guardar ruleta</button></div>' +
+      '<div id="adRlRecent" style="margin-top:8px;display:grid;gap:6px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos de la Madam</h3>' +
       '<div id="adMdmList" class="admList">Cargando…</div>');
     this._loadMadamContracts();
@@ -2040,6 +2059,22 @@ const Game = {
       setV("adMcJinete", p.jinete); setV("adMcMago", p.mago);
       setV("adMcPct", r.admin_pct); setV("adMcLimit", r.limit);
       const e = $("#adMcEarned"); if(e) e.textContent = dec(Number(r.earned || 0));
+    }).catch(() => {});
+    sbRpc("wow_admin_roulette_stats", { p_token: this.me.token }).then(r => {
+      if(!r) return;
+      const setV = (id, v) => { const el = $("#" + id); if(el && v != null) el.value = v; };
+      setV("adRlCost", r.cost); setV("adRlMin", r.minutes);
+      setV("adRlWin", r.pct_winner); setV("adRlAdm", r.pct_admin); setV("adRlShr", r.pct_shared);
+      setV("adRlOn", r.enabled ? "1" : "0");
+      const txt = (id, v) => { const el = $("#" + id); if(el) el.textContent = dec(Number(v || 0)); };
+      txt("adRlRounds", r.rounds); txt("adRlEarned", r.earned); txt("adRlPaid", r.paid);
+      txt("adRlAdmEarned", r.admin_earned); txt("adRlShrEarned", r.shared_earned);
+      const box = $("#adRlRecent");
+      if(box){
+        const rw = r.recent || [];
+        box.innerHTML = rw.length ? rw.map(w =>
+          '<div class="admRow" style="padding:8px">🏆 <b>' + esc(w.name || "?") + '</b> · ' + dec(w.prize) + ' CUP · ' + un(w.players) + ' jug.</div>').join("") : "";
+      }
     }).catch(() => {});
     $("#adMdmGo").onclick = async () => {
       const cost = Number($("#adMdmCost").value);
@@ -2096,6 +2131,22 @@ const Game = {
         notice($("#admMsg"), "Precios de los mercenarios guardados.", "ok");
         mcGo.disabled = false;
       }catch(e){ mcGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const rlGo = $("#adRlGo");
+    if(rlGo) rlGo.onclick = async () => {
+      const co = Number($("#adRlCost").value), mi = Number($("#adRlMin").value);
+      const pw = Number($("#adRlWin").value), pa = Number($("#adRlAdm").value), psh = Number($("#adRlShr").value);
+      const en = Number($("#adRlOn").value);
+      if(!(co >= 1 && co <= 10000)) return notice($("#admMsg"), "La entrada debe estar entre 1 y 10.000 CUP.", "danger");
+      if(!(mi >= 1 && mi <= 1440)) return notice($("#admMsg"), "La duración debe estar entre 1 y 1.440 minutos.", "danger");
+      if(!(pw >= 0 && pw <= 100) || !(pa >= 0 && pa <= 100) || !(psh >= 0 && psh <= 100)) return notice($("#admMsg"), "Cada porcentaje debe estar entre 0 y 100.", "danger");
+      if(Math.abs(pw + pa + psh - 100) > 0.01) return notice($("#admMsg"), "Los porcentajes del ganador, admin y tronos/aldeas deben sumar 100.", "danger");
+      rlGo.disabled = true;
+      try{
+        await sbRpc("wow_admin_setroulette", { p_token: this.me.token, p_cost: co, p_minutes: mi, p_pct_winner: pw, p_pct_admin: pa, p_pct_shared: psh, p_enabled: en });
+        notice($("#admMsg"), "Ruleta guardada. La nueva ronda usará estos valores.", "ok");
+        rlGo.disabled = false;
+      }catch(e){ rlGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const mnLb = $("#adMnListBtn");
     if(mnLb) mnLb.onclick = async () => {
@@ -2633,7 +2684,7 @@ Game.loadTavern = async function(){
         '<div class="tvBtns">' +
           '<button id="tvMadam">💃 Madam</button>' +
           '<button id="tvMercs">🗡️ Mercenarios</button>' +
-          '<button disabled title="Próximamente">🍺 Beber</button>' +
+          '<button id="tvDrink">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon" id="tvSoon"></div>' +
       '</div>' +
@@ -2642,6 +2693,8 @@ Game.loadTavern = async function(){
   if(mb) mb.onclick = () => Game.openMadam();
   const mc = $("#tvMercs");
   if(mc) mc.onclick = () => Game.openMercs();
+  const md = $("#tvDrink");
+  if(md) md.onclick = () => Game.openDrink();
 };
 
 Game.madamStories = [
@@ -2796,6 +2849,226 @@ Game.openMercs = async function(){
     }catch(e){ toast(e.message, true); go.disabled = false; }
   };
 };
+
+/* ---------------- taberna: beber y ruleta ---------------- */
+Game.openDrink = function(){
+  modal(
+    '<h3 style="margin:0 0 8px">🍺 La barra de la taberna</h3>' +
+    '<div class="mLin">El humo, el hidromiel y las risas llenan la taberna. Al fondo, una rueda dorada gira despacio entre aplausos: la <b>Ruleta El Dorado</b>.</div>' +
+    '<div class="mLin" style="opacity:.85">La Madam te sonríe desde la barra: «¿Te atreves a probar suerte? El ganador se lleva el 90% del bote».</div>' +
+    '<div style="text-align:center;margin:16px 0 6px">' +
+      '<button class="btn" id="tvApostar" style="width:100%">🎲 Apostar en la ruleta</button>' +
+    '</div>' +
+    '<div style="opacity:.7;font-size:12px;text-align:center">Rondas globales · entrada en CUP · parte del bote va a tronos y aldeas.</div>'
+  );
+  const b = $("#tvApostar"); if(b) b.onclick = () => Game.openRoulette();
+};
+
+Game._rlt = null;
+Game.rltStop = function(){
+  const st = Game._rlt;
+  if(!st) return;
+  st.open = false;
+  if(st.poll) clearInterval(st.poll);
+  if(st.timer) clearInterval(st.timer);
+  st.poll = null; st.timer = null;
+};
+Game.rltNow = function(){ return Date.now() + ((Game._rlt && Game._rlt.skew) || 0); };
+Game.rltFmt = function(ms){
+  const s = Math.max(0, Math.floor(ms/1000));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), x = s%60;
+  return [h,m,x].map(n => String(n).padStart(2,"0")).join(":");
+};
+Game.rltMsg = function(html, cls){
+  const e = $("#rltMsg"); if(!e) return;
+  e.className = "notice" + (cls ? " " + cls : "");
+  e.innerHTML = html;
+};
+Game.rltShell = function(d){
+  modal(
+    '<h3 style="margin:0 0 6px">🎡 Ruleta El Dorado</h3>' +
+    '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--dim)">' +
+      '<span>Entrada <b style="color:var(--gold)">' + dec(d.cost) + ' CUP</b></span>' +
+      '<span>Bote <b style="color:var(--gold)" id="rltPot">0</b></span>' +
+      '<span>Premio <b style="color:var(--green)" id="rltPrize">0</b></span>' +
+    '</div>' +
+    '<div style="margin:10px 0 0"><div class="rltTimer" id="rltTimer">00:00:00</div>' +
+      '<div id="rltNext" style="text-align:center;font-size:12px;color:var(--dim);min-height:15px"></div></div>' +
+    '<div class="rltWrap"><canvas id="rltCanvas" width="320" height="320"></canvas>' +
+      '<div class="rltPtrl">▼</div><div class="rltHub">♛</div></div>' +
+    '<div id="rltMsg" class="notice">Cargando la ronda…</div>' +
+    '<div style="text-align:center;margin:10px 0 14px"><button class="btn" id="rltJoin" disabled>Participar</button></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<b style="font-size:14px">👥 Participantes</b><span style="font-size:12px;color:var(--dim)" id="rltCup"></span></div>' +
+    '<div id="rltList" style="display:grid;gap:6px"></div>' +
+    '<div style="margin:14px 0 4px"><b style="font-size:14px">🏆 Últimos ganadores</b></div>' +
+    '<div id="rltWins" style="display:grid;gap:6px"></div>' +
+    '<div class="mLin" style="margin-top:14px;font-size:12px;opacity:.85">90% del bote para el ganador · 5% para la administración · 5% para tronos y aldeas.</div>'
+  );
+  const btn = $("#rltJoin"); if(btn) btn.onclick = () => Game.rltJoin();
+  Game._rlt = { data:null, poll:null, timer:null, rotation:0, busy:false, open:true, pulling:false, skew:0, flashUntil:0 };
+};
+Game.rltDraw = function(){
+  const st = Game._rlt; if(!st || !st.data) return;
+  const cv = $("#rltCanvas"); if(!cv) return;
+  const ctx = cv.getContext("2d"), size = cv.width, cx = size/2, cy = size/2, R = size/2 - 5;
+  const ps = st.data.participants || [];
+  ctx.clearRect(0,0,size,size);
+  if(!ps.length){
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fillStyle="#171f32"; ctx.fill();
+    ctx.strokeStyle="#f5c451"; ctx.lineWidth=4; ctx.stroke();
+    ctx.fillStyle="#f5c451"; ctx.font="bold 19px Georgia"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText("ESPERANDO",cx,cy-13); ctx.fillText("PARTICIPANTES",cx,cy+15);
+    return;
+  }
+  const slice = Math.PI*2/ps.length;
+  const colors = ["#c0392b","#8e44ad","#2980b9","#16a085","#d35400","#2c3e50","#7f8c8d","#27ae60","#34495e","#9b59b6"];
+  ps.forEach((p,i) => {
+    const a0 = -Math.PI/2 + i*slice, a1 = a0 + slice;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,R,a0,a1); ctx.closePath();
+    ctx.fillStyle = colors[i%colors.length]; ctx.fill();
+    ctx.strokeStyle = "#f5c451"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(a0 + slice/2);
+    ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
+    const nm = String(p.name || "?");
+    let fs = 15; if(nm.length > 12) fs = 12; if(nm.length > 18) fs = 9;
+    ctx.font = "bold " + fs + "px Georgia";
+    ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
+    ctx.fillText(nm.length > 22 ? nm.slice(0,21) + "…" : nm, R - 12, 0);
+    ctx.restore();
+  });
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.strokeStyle="#f5c451"; ctx.lineWidth=5; ctx.stroke();
+};
+Game.rltTick = function(){
+  const st = Game._rlt; if(!st || !st.data) return;
+  const d = st.data, now = Game.rltNow();
+  const t = $("#rltTimer"), nx = $("#rltNext");
+  if(!d.finished){
+    if(t) t.textContent = Game.rltFmt(d.ends - now);
+    if(nx) nx.textContent = "";
+  }else{
+    if(t) t.textContent = "00:00:00";
+    if(nx){
+      const left = Math.max(0, 15000 - (now - (d.finished_at || 0)));
+      nx.textContent = d.enabled === false ? "Ruleta cerrada" : (left > 0 ? "Nueva ronda en " + Math.ceil(left/1000) + " s" : "Abriendo ronda…");
+    }
+  }
+};
+Game.rltPaint = function(){
+  const st = Game._rlt; if(!st || !st.data) return;
+  const d = st.data, ps = d.participants || [];
+  const setTxt = (id, html) => { const e = $(id); if(e) e.innerHTML = html; };
+  setTxt("#rltPot", dec(d.pot));
+  setTxt("#rltPrize", dec(d.prize_est || 0));
+  setTxt("#rltCup", "Tienes " + dec(d.cup || 0) + " CUP");
+  Game.rltTick();
+  const list = $("#rltList");
+  if(list){
+    list.innerHTML = ps.length ? ps.map((p,i) =>
+      '<div class="rltP"><span class="rltIdx">' + (i+1) + '</span><span>' + esc(p.name) + '</span>' +
+      '<span style="margin-left:auto;color:var(--dim)">' + dec(d.cost) + ' CUP</span></div>').join("")
+      : '<div style="font-size:12px;color:var(--dim)">Nadie todavía. ¡Sé el primero!</div>';
+  }
+  const wins = $("#rltWins");
+  if(wins){
+    const rw = d.recent || [];
+    wins.innerHTML = rw.length ? rw.map(w =>
+      '<div class="rltP"><span>🏆 ' + esc(w.name || "?") + '</span>' +
+      '<span style="margin-left:auto;color:var(--gold)">' + dec(w.prize) + ' CUP</span></div>').join("")
+      : '<div style="font-size:12px;color:var(--dim)">Aún no hay ganadores.</div>';
+  }
+  const btn = $("#rltJoin");
+  if(btn){
+    let txt = "🎟️ Participar · " + dec(d.cost) + " CUP", dis = false;
+    if(d.enabled === false){ txt = "Ruleta cerrada"; dis = true; }
+    else if(d.finished){ txt = "Preparando la siguiente ronda…"; dis = true; }
+    else if(d.joined){ txt = "✅ Ya estás participando"; dis = true; }
+    else if(Number(d.cup || 0) < Number(d.cost || 0)){ txt = "Te faltan CUP para participar"; dis = true; }
+    btn.textContent = txt; btn.disabled = dis;
+  }
+  if(!st.busy && Date.now() > st.flashUntil){
+    if(d.enabled === false) Game.rltMsg("La ruleta está cerrada por el momento.", "");
+    else if(d.finished){
+      if(d.winner_name) Game.rltMsg("Ronda cerrada. Ganó <b>" + esc(d.winner_name) + "</b>. Preparando la siguiente…", "");
+      else Game.rltMsg("No hubo participantes en esta ronda. Preparando la siguiente…", "");
+    }else{
+      Game.rltMsg(ps.length ? "La ronda está abierta. ¡Suerte!" : "La ronda está abierta. ¡Participa con " + dec(d.cost) + " CUP!", "");
+    }
+  }
+};
+Game.rltSpin = function(wi, count, cb){
+  const cv = $("#rltCanvas"); if(!cv || !count){ if(cb) cb(); return; }
+  const st = Game._rlt;
+  const slice = 360/count, target = -(wi*slice + slice/2), extra = 360*6;
+  const from = st.rotation, to = from + extra + target, dur = 5000, t0 = performance.now();
+  const anim = now => {
+    const p = Math.min(1, (now - t0)/dur), e = 1 - Math.pow(1 - p, 3);
+    st.rotation = from + (to - from)*e;
+    cv.style.transform = "rotate(" + st.rotation + "deg)";
+    if(p < 1) requestAnimationFrame(anim);
+    else { st.rotation = to; if(cb) cb(); }
+  };
+  requestAnimationFrame(anim);
+};
+Game.rltApply = function(d){
+  const st = Game._rlt; if(!st || !d || !d.ok) return;
+  if(Number.isFinite(Number(d.now))) st.skew = Number(d.now) - Date.now();
+  const prev = st.data;
+  st.data = d;
+  if(Game.me && d.cup != null) Game.me.cup = d.cup;
+  Game.rltDraw();
+  Game.rltPaint();
+  if(prev && !prev.finished && d.finished && Number(d.winner_index) >= 0 && d.winner_name && !st.busy){
+    st.busy = true;
+    Game.rltPaint();
+    Game.rltMsg("🎡 La rueda está girando…", "");
+    Game.rltSpin(Number(d.winner_index), (d.participants || []).length, () => {
+      const q = Game._rlt;
+      q.busy = false; q.flashUntil = Date.now() + 7000;
+      Game.rltMsg("🏆 <b>¡GANADOR!</b> 🎉 " + esc(d.winner_name) + "<br>🪙 Premio: <b>" + dec(d.prize) + " CUP</b>", "ok");
+      Game.rltPaint();
+    });
+  }else if(prev && prev.finished && !d.finished){
+    st.rotation = 0;
+    const cv = $("#rltCanvas"); if(cv) cv.style.transform = "rotate(0deg)";
+    st.flashUntil = Date.now() + 4000;
+    Game.rltPaint();
+    Game.rltMsg("🎉 ¡Nueva ronda abierta! Participa con " + dec(d.cost) + " CUP.", "ok");
+  }
+};
+Game.rltPoll = async function(){
+  const st = Game._rlt; if(!st || !st.open || st.pulling) return;
+  st.pulling = true;
+  try{
+    const d = await sbRpc("wow_roulette_state", { p_token: Game.me.token });
+    Game.rltApply(d);
+  }catch(e){
+    if(/Sesión/.test(String(e.message || ""))) toast(e.message, true);
+  }
+  finally{ st.pulling = false; }
+};
+Game.rltJoin = async function(){
+  const st = Game._rlt; if(!st || !st.data || st.busy) return;
+  const btn = $("#rltJoin"); if(btn) btn.disabled = true;
+  try{
+    const r = await sbRpc("wow_roulette_join", { p_token: Game.me.token });
+    if(Game.me) Game.me.cup = r.cup;
+    toast("🎟️ ¡Ya estás dentro de la ruleta!");
+    Game.rltApply(await sbRpc("wow_roulette_state", { p_token: Game.me.token }));
+  }catch(e){ toast(e.message, true); Game.rltPaint(); }
+};
+Game.openRoulette = async function(){
+  let d;
+  try{ d = await sbRpc("wow_roulette_state", { p_token: this.me.token }); }
+  catch(e){ toast(e.message, true); return; }
+  Game.rltShell(d);
+  Game._onModalClose = () => Game.rltStop();
+  Game._rlt.skew = Number(d.now) - Date.now();
+  Game.rltApply(d);
+  Game._rlt.poll = setInterval(() => Game.rltPoll(), 2000);
+  Game._rlt.timer = setInterval(() => Game.rltTick(), 1000);
+};
+
 Game.thrEvent = function(h, kind){
   const who = esc(h.actor_name || "?");
   const t = hora(h.created);
