@@ -2589,19 +2589,20 @@ Game.startClock = function(){
   if(this._clockTimer) return;
   let fmt;
   try{
-    fmt = new Intl.DateTimeFormat("es-CU", { timeZone: "America/Havana", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    fmt = new Intl.DateTimeFormat("es-CU", { timeZone: "America/Havana", hour12: true, hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }catch(e){ fmt = null; }
   const upd = () => {
     const el = $("#gClock");
     if(!el) return;
     let txt;
     if(fmt){
-      txt = fmt.format(new Date());
+      txt = fmt.format(new Date()).replace(/\s*p\.?\s*m\.?\s*$/i, " PM").replace(/\s*a\.?\s*m\.?\s*$/i, " AM");
     }else{
       const d = new Date();
       const utc = d.getTime() + d.getTimezoneOffset() * 60000;
       const cuba = new Date(utc - 5 * 3600000);
-      txt = [cuba.getHours(), cuba.getMinutes(), cuba.getSeconds()].map(n => String(n).padStart(2, "0")).join(":");
+      const h = cuba.getHours();
+      txt = [h % 12 || 12, cuba.getMinutes(), cuba.getSeconds()].map(n => String(n).padStart(2, "0")).join(":") + (h < 12 ? " AM" : " PM");
     }
     el.textContent = "🇨🇺 " + txt;
   };
