@@ -1978,8 +1978,9 @@ const Game = {
   },
   admTavern(){
     const m = this.madam || { cost: 50, days: 30, bonus: 1 };
+    const mn = this.miners || { cost: 200, days: 30 };
     modal('<h2 style="margin-top:0;color:var(--gold)">🍺 Taberna · precios</h2>' +
-      '<p class="hint">Ajusta lo que cuesta y lo que dan las atracciones de la taberna. Ahora mismo solo la <b>💃 Madam</b> tiene contrato; 🗡️ Mercenarios y 🍺 Beber llegarán después y también se regularán desde aquí.</p>' +
+      '<p class="hint">Ajusta lo que cuesta y lo que dan las atracciones de la taberna. La <b>💃 Madam</b> da +1 de ataque por tropa y los <b>⛏️ Mineros y leñadores</b> duplican la producción de oro, madera y mineral.</p>' +
       '<h3 style="margin:14px 0 6px;color:var(--gold)">💃 La Madam</h3>' +
       '<div class="admInputs">' +
         '<label>Precio del contrato (CUP)<input id="adMdmCost" type="number" min="0" max="100000" value="' + un(m.cost != null ? m.cost : 50) + '"></label>' +
@@ -1993,8 +1994,17 @@ const Game = {
       '<p class="hint" style="margin-top:8px">Mientras el contrato esté activo, todas las tropas del reino reciben el bonus de ataque (atacando y defendiendo). · Contratos activos ahora: <b>' + un((this.madam && this.madam.active_n) || 0) + '</b> · Total recaudado: <b>' + un((this.madam && this.madam.earned) || 0) + ' CUP</b>.</p>' +
       '<p class="hint">De cada contrato: el <b>% del admin</b> va como CUP al reino del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, en proporción a estos % (p.ej. 60 y 20 → los tronos se llevan el 75% del resto y las aldeas el 25%). El total repartido nunca supera lo pagado; el importe sale marcado como recaudado.</p>' +
       '<div style="text-align:center;margin-top:14px"><button class="btn" id="adMdmGo">Guardar</button></div>' +
+      '<h3 style="margin:18px 0 6px;color:var(--gold)">⛏️ Mineros y leñadores</h3>' +
+      '<div class="admInputs">' +
+        '<label>Precio del contrato (CUP)<input id="adMnCost" type="number" min="0" max="1000000" value="' + un(mn.cost != null ? mn.cost : 200) + '"></label>' +
+        '<label>Duración (días)<input id="adMnDays" type="number" min="1" max="365" value="' + un(mn.days != null ? mn.days : 30) + '"></label>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:6px">Mientras el contrato esté activo, la producción de oro, madera y mineral del reino se <b>duplica</b>. El reparto de los CUP sigue la misma regla que la Madam (<b>% para el admin</b> + resto a tronos y aldeas según sus pesos).</p>' +
+      '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMnGo">Guardar mineros</button></div>' +
+      '<div style="text-align:center;margin-top:10px"><button class="btn sm" id="adMnListBtn">Ver contratos de mineros</button></div>' +
+      '<div id="adMnList" class="admList" style="margin-top:8px"></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
-      '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos</h3>' +
+      '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos de la Madam</h3>' +
       '<div id="adMdmList" class="admList">Cargando…</div>');
     this._loadMadamContracts();
     $("#adMdmGo").onclick = async () => {
@@ -2016,6 +2026,39 @@ const Game = {
         this.madam = { cost: r.cost, days: r.days, bonus: r.bonus, admin_pct: r.admin_pct, pct_trono: r.pct_trono, pct_aldea: r.pct_aldea, active_n: (this.madam && this.madam.active_n) || 0, earned: (this.madam && this.madam.earned) || 0 };
         modalClose(); toast("🍺 Precios de la taberna guardados."); this.loadAdmin();
       }catch(e){ $("#adMdmGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const mnGo = $("#adMnGo");
+    if(mnGo) mnGo.onclick = async () => {
+      const cost = Number($("#adMnCost").value);
+      const days = Number($("#adMnDays").value);
+      if(!(cost >= 0 && cost <= 1000000)) return notice($("#admMsg"), "El precio debe estar entre 0 y 1.000.000 CUP.", "danger");
+      if(!(days >= 1 && days <= 365)) return notice($("#admMsg"), "La duración debe estar entre 1 y 365 días.", "danger");
+      mnGo.disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_setmineros", { p_token: this.me.token, p_cost: cost, p_days: days });
+        this.miners = { cost: r.cost, days: r.days };
+        notice($("#admMsg"), "Precios de los mineros guardados.", "ok");
+        mnGo.disabled = false;
+      }catch(e){ mnGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const mnLb = $("#adMnListBtn");
+    if(mnLb) mnLb.onclick = async () => {
+      const box = $("#adMnList");
+      if(!box) return;
+      box.innerHTML = "Cargando…";
+      try{
+        const r = await sbRpc("wow_admin_miner_contracts", { p_token: this.me.token });
+        const cs = (r && r.contracts) || [];
+        if(!cs.length){ box.innerHTML = '<p class="empty">Ningún reino tiene contrato de mineros activo.</p>'; return; }
+        const d2 = ms => { const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), mi = Math.floor((ms % 3600000) / 60000); return d + 'd ' + h + 'h ' + mi + 'm'; };
+        box.innerHTML = cs.map(c =>
+          '<div class="admRow" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+            '<span style="flex:1;min-width:120px">' + (c.faction === "alianza" ? "🔵" : "🔴") + ' <b>' + esc(c.name) + '</b>' +
+              (c.alliance ? ' <span class="admTag">[' + esc(c.alliance) + ']</span>' : '') + '</span>' +
+            '<span style="color:var(--green)">⛏️ producción x2</span>' +
+            '<span style="opacity:.8">⏳ ' + d2(c.remain_ms) + '</span>' +
+          '</div>').join("");
+      }catch(e){ box.innerHTML = '<p class="empty">' + esc(shortMsg(e)) + '</p>'; }
     };
   },
   async _loadMadamContracts(){
@@ -2509,7 +2552,7 @@ Game.loadTavern = async function(){
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
           '<button id="tvMadam">💃 Madam</button>' +
-          '<button disabled title="Próximamente">🗡️ Mercenarios</button>' +
+          '<button id="tvMiners">⛏️ Contratar mineros</button>' +
           '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon" id="tvSoon"></div>' +
@@ -2517,6 +2560,8 @@ Game.loadTavern = async function(){
     '</div>';
   const mb = $("#tvMadam");
   if(mb) mb.onclick = () => Game.openMadam();
+  const mn = $("#tvMiners");
+  if(mn) mn.onclick = () => Game.openMiners();
 };
 
 Game.madamStories = [
@@ -2779,4 +2824,39 @@ Game.mktCancel = async function(id){
     await sbRpc("wow_market_cancel", { p_token: this.me.token, p_id: id });
     toast("Oferta cancelada."); await this.refresh();
   }catch(e){ toast(shortMsg(e), true); }
+};
+
+Game.openMiners = async function(){
+  let r;
+  try{ r = await sbRpc("wow_miner_info", { p_token: this.me.token }); }
+  catch(e){ toast(e.message, true); return; }
+  const cost = Number(r.cost), days = Number(r.days);
+  const active = r.active === true;
+  const remain = Number(r.remain_ms || 0);
+  const dias = Math.floor(remain / 86400000), horas = Math.floor((remain % 86400000) / 3600000);
+  const cup = Number(r.cup || 0);
+  const estados = active
+    ? '<div class="mLin">Contrato <b>activo</b> · <b>duplica</b> la producción de oro, madera y mineral · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
+    : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días · duplica la producción de oro, madera y mineral</div>';
+  const btn = active ? ('Renovar contrato de mineros <span style="opacity:.7">· ' + cost + ' CUP</span>') : ('Contratar mineros <span style="opacity:.7">· ' + cost + ' CUP</span>');
+  modal(
+    '<h3 style="margin:0 0 8px">⛏️ Mineros y leñadores</h3>' +
+    '<div class="mLin">Tienes <b>' + Math.floor(cup) + ' CUP</b></div>' +
+    estados +
+    '<div style="margin:12px 0;line-height:1.5;opacity:.9">Los mineros excavan más profundo y traen más veta tras cada turno. Mientras dure el contrato, <b>duplica la producción por hora</b> de oro, madera y mineral de tu reino.</div>' +
+    '<div style="text-align:center;margin-top:6px">' +
+      '<button class="btn" id="mnHire">' + btn + '</button>' +
+    '</div>'
+  );
+  const hb = $("#mnHire");
+  if(hb) hb.onclick = async () => {
+    hb.disabled = true;
+    try{
+      const hr = await sbRpc("wow_miner_hire", { p_token: Game.me.token });
+      toast("⛏️ Los mineros se ponen a trabajar. Producción x2 durante " + days + " días.");
+      if(Game.me) Game.me.cup = hr.cup;
+      modalClose();
+      Game.loadTavern && Game.loadTavern();
+    }catch(e){ toast(e.message, true); hb.disabled = false; }
+  };
 };
