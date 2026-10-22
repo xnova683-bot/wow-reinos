@@ -319,7 +319,7 @@ const Auth = {
         if(Game.tab === "admin") Game.loadAdmin();
       };
     });
-    this.startClock();
+    Game.startClock();
     this.portal();
     const tok = localStorage.getItem("wow_token");
     if(tok){
