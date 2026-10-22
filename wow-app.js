@@ -2552,7 +2552,7 @@ Game.loadTavern = async function(){
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
           '<button id="tvMadam">💃 Madam</button>' +
-          '<button id="tvMiners">⛏️ Contratar mineros</button>' +
+          '<button id="tvMiners">⛏️ Mineros</button>' +
           '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon" id="tvSoon"></div>' +
@@ -2826,6 +2826,18 @@ Game.mktCancel = async function(id){
   }catch(e){ toast(shortMsg(e), true); }
 };
 
+Game.minerStories = [
+  { t: "La veta olvidada", s: "Los mineros golpean la roca al unísono y un filón de oro reluce en la penumbra. «Ese túnel lo cerraron hace cien años», dice el capataz. «Dinos que trabajamos para tu reino y no pararemos hasta vaciarlo.»" },
+  { t: "El bosque de los leñadores", s: "Un anciano leñador afila el hacha junto al fuego. «Los árboles de tu tierra crecen torcidos, pero dan la mejor madera de Azeroth. Dame trabajo a mí y a mi cuadrilla y la producción de tu reino se duplicará.»" },
+  { t: "La deuda del capataz", s: "El capataz de la mina te enseña un contrato manchado de hollín. «Perdí mi cuadrilla en una apuesta. Si me pagas el sueldo de un mes, esos cincuenta hombres y sus picos serán tuyos.»" },
+  { t: "El mineral maldito", s: "«Hay una veta que brilla de noche», susurra una minera. «Dicen que está maldita, pero el hierro que sale de ahí corta el acero enemigo. Con tu permiso, mis compañeros la excavarán sin miedo.»" },
+  { t: "El aserradero del norte", s: "Los leñadores del norte huyen del frío. «Nuestros aserraderos están parados por falta de patrón. Contrátanos y el martillo no dejará de sonar en tus talleres.»" },
+  { t: "La promesa de los enanos", s: "Un enano de barba trenzada golpea la barra de la taberna. «Mis hermanos huelen el oro a diez leguas. Págales y no habrá veta que se te resista.»" },
+  { t: "El turno de noche", s: "«Los humanos duermen, pero la roca no», dice el capataz. «Con dos turnos, tus minas y tus leñadores trabajarán el doble. Solo necesitan que alguien les pague la semana.»" },
+  { t: "La carreta rota", s: "Una carreta cargada de troncos se ha atascado en el barro. El leñador te mira de reojo: «Arregla esto y mi cuadrilla será tuya hasta la próxima luna.»" },
+  { t: "El juramento del pico", s: "Cuando la taberna queda vacía, el viejo capataz clava su pico en la madera. «He abierto minas para reyes y para ladrones. La roca no miente: si pagas, trabajamos. Doscientos, treinta días, y tus arcas no volverán a estar vacías.»" }
+];
+
 Game.openMiners = async function(){
   let r;
   try{ r = await sbRpc("wow_miner_info", { p_token: this.me.token }); }
@@ -2834,16 +2846,20 @@ Game.openMiners = async function(){
   const active = r.active === true;
   const remain = Number(r.remain_ms || 0);
   const dias = Math.floor(remain / 86400000), horas = Math.floor((remain % 86400000) / 3600000);
-  const cup = Number(r.cup || 0);
-  const estados = active
-    ? '<div class="mLin">Contrato <b>activo</b> · <b>duplica</b> la producción de oro, madera y mineral · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
-    : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días · duplica la producción de oro, madera y mineral</div>';
-  const btn = active ? ('Renovar contrato de mineros <span style="opacity:.7">· ' + cost + ' CUP</span>') : ('Contratar mineros <span style="opacity:.7">· ' + cost + ' CUP</span>');
+  if(!this._minerSeen){ this._minerSeen = []; }
+  let pool = Game.minerStories.map((_, i) => i).filter(i => this._minerSeen.indexOf(i) < 0);
+  if(!pool.length){ this._minerSeen = []; pool = Game.minerStories.map((_, i) => i); }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  this._minerSeen.push(pick);
+  const st = Game.minerStories[pick];
+  const estados = (active
+    ? '<div class="mLin">Contrato <b>activo</b> · <b>x2</b> producción de oro, madera y mineral · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
+    : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días</div>');
+  const btn = 'Contratar mineros x2 producción <span style="opacity:.7">· ' + cost + ' CUP</span>';
   modal(
     '<h3 style="margin:0 0 8px">⛏️ Mineros y leñadores</h3>' +
-    '<div class="mLin">Tienes <b>' + Math.floor(cup) + ' CUP</b></div>' +
     estados +
-    '<div style="margin:12px 0;line-height:1.5;opacity:.9">Los mineros excavan más profundo y traen más veta tras cada turno. Mientras dure el contrato, <b>duplica la producción por hora</b> de oro, madera y mineral de tu reino.</div>' +
+    '<div style="margin:12px 0;line-height:1.5"><b>' + esc(st.t) + '</b><br><span style="opacity:.9">' + esc(st.s) + '</span></div>' +
     '<div style="text-align:center;margin-top:6px">' +
       '<button class="btn" id="mnHire">' + btn + '</button>' +
     '</div>'
