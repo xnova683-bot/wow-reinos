@@ -2703,7 +2703,7 @@ Game.openMercs = async function(){
   modal(
     '<h3 style="margin:0 0 8px">🗡️ Mercenarios</h3>' +
     '<div class="mLin">Tienes <b>' + dec(Number(r.cup || 0)) + ' CUP</b></div>' +
-    '<div class="mLin" style="opacity:.85">Se unen a tu ejército al instante. El <b>' + un(Number(r.admin_pct || 0)) + '%</b> del pago es comisión; el resto se reparte entre tronos y aldeas como el pago a la Madam.</div>' +
+    '<div class="mLin" style="opacity:.85">Se une a tu ejército al instante.</div>' +
     '<div style="margin:12px 0">' + rows + '</div>' +
     '<div style="text-align:center;margin-top:6px;opacity:.9" id="mrcTot">Total: 0 CUP</div>' +
     '<div style="text-align:center;margin-top:8px">' +
