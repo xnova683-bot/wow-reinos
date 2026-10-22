@@ -2024,8 +2024,9 @@ const Game = {
         '<label>Jinete (CUP/u)<input id="adMcJinete" type="number" min="0" max="1000000" step="0.01" value="9"></label>' +
         '<label>Mago (CUP/u)<input id="adMcMago" type="number" min="0" max="1000000" step="0.01" value="12"></label>' +
         '<label>% comisión del admin<input id="adMcPct" type="number" min="0" max="100" step="0.01" value="20"></label>' +
+        '<label>Límite por tropa / 24 h<input id="adMcLimit" type="number" min="1" max="1000" value="10"></label>' +
       '</div>' +
-      '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, igual que el pago a la Madam (según los % de arriba). · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
+      '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, igual que el pago a la Madam (según los % de arriba). Cada reino puede comprar como máximo el <b>límite</b> de cada tropa en cualquier ventana de 24 h. · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
       '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMcGo">Guardar mercenarios</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos de la Madam</h3>' +
@@ -2037,7 +2038,7 @@ const Game = {
       const setV = (id, v) => { const el = $("#" + id); if(el && v != null) el.value = v; };
       setV("adMcSoldado", p.soldado); setV("adMcArquero", p.arquero);
       setV("adMcJinete", p.jinete); setV("adMcMago", p.mago);
-      setV("adMcPct", r.admin_pct);
+      setV("adMcPct", r.admin_pct); setV("adMcLimit", r.limit);
       const e = $("#adMcEarned"); if(e) e.textContent = dec(Number(r.earned || 0));
     }).catch(() => {});
     $("#adMdmGo").onclick = async () => {
@@ -2079,17 +2080,19 @@ const Game = {
       const sv = Number($("#adMcSoldado").value), ar = Number($("#adMcArquero").value);
       const ji = Number($("#adMcJinete").value), mg = Number($("#adMcMago").value);
       const pc = Number($("#adMcPct").value);
+      const lim = Number($("#adMcLimit").value);
       const okP = v => v >= 0 && v <= 1000000;
       if(!okP(sv) || !okP(ar) || !okP(ji) || !okP(mg)) return notice($("#admMsg"), "Los precios deben estar entre 0 y 1.000.000 CUP.", "danger");
       if(!(pc >= 0 && pc <= 100)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 100.", "danger");
+      if(!(lim >= 1 && lim <= 1000)) return notice($("#admMsg"), "El límite por tropa debe estar entre 1 y 1.000 cada 24 horas.", "danger");
       mcGo.disabled = true;
       try{
-        const r = await sbRpc("wow_admin_setmerc", { p_token: this.me.token, p_soldado: sv, p_arquero: ar, p_jinete: ji, p_mago: mg, p_admin: pc });
+        const r = await sbRpc("wow_admin_setmerc", { p_token: this.me.token, p_soldado: sv, p_arquero: ar, p_jinete: ji, p_mago: mg, p_admin: pc, p_limit: lim });
         const p = r.prices || {};
         const setV = (id, v) => { const el = $("#" + id); if(el && v != null) el.value = v; };
         setV("adMcSoldado", p.soldado); setV("adMcArquero", p.arquero);
         setV("adMcJinete", p.jinete); setV("adMcMago", p.mago);
-        setV("adMcPct", r.admin_pct);
+        setV("adMcPct", r.admin_pct); setV("adMcLimit", r.limit);
         notice($("#admMsg"), "Precios de los mercenarios guardados.", "ok");
         mcGo.disabled = false;
       }catch(e){ mcGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
@@ -2729,13 +2732,17 @@ Game.openMercs = async function(){
   catch(e){ toast(e.message, true); return; }
   const prices = r.prices || {};
   const mine = r.troops || {};
+  const left = r.left || {};
+  const tope = Number(r.limit || 10);
   const keys = ["soldado", "arquero", "jinete", "mago"];
   const rows = keys.map(k => {
     const m = TRP[k] || { e: "⚔️", n: k };
+    const rest = Math.max(0, Math.floor(Number(left[k] != null ? left[k] : tope)));
     return '<div style="display:flex;align-items:center;gap:8px;margin:7px 0">' +
-      '<span style="flex:1">' + m.e + ' <b>' + m.n + '</b> <span style="opacity:.6">×' + un(mine[k] || 0) + '</span></span>' +
+      '<span style="flex:1">' + m.e + ' <b>' + m.n + '</b> <span style="opacity:.6">×' + un(mine[k] || 0) + '</span>' +
+        ' <span style="color:' + (rest > 0 ? "var(--green)" : "var(--bad)") + ';font-size:12px">quedan ' + un(rest) + '/' + un(tope) + '</span></span>' +
       '<span style="opacity:.8;white-space:nowrap">' + dec(Number(prices[k] || 0)) + ' CUP/u</span>' +
-      '<input id="mrc_' + k + '" type="number" min="0" max="5000" value="0" style="width:78px">' +
+      '<input id="mrc_' + k + '" type="number" min="0" max="' + rest + '" value="0" style="width:78px"' + (rest > 0 ? "" : " disabled") + '>' +
     '</div>';
   }).join("");
   modal(
@@ -2752,7 +2759,9 @@ Game.openMercs = async function(){
     let total = 0, n = 0;
     keys.forEach(k => {
       const el = $("#mrc_" + k);
-      const v = Math.max(0, parseInt(el && el.value, 10) || 0);
+      const rest = Math.max(0, Math.floor(Number(left[k] != null ? left[k] : tope)));
+      let v = Math.max(0, parseInt(el && el.value, 10) || 0);
+      if(v > rest){ v = rest; if(el) el.value = rest; }
       total += v * Number(prices[k] || 0); n += v;
     });
     const tot = $("#mrcTot"), go = $("#mrcGo");
@@ -2771,7 +2780,8 @@ Game.openMercs = async function(){
     try{
       for(const k of keys){
         const el = $("#mrc_" + k);
-        const v = Math.max(0, parseInt(el && el.value, 10) || 0);
+        const rest = Math.max(0, Math.floor(Number(left[k] != null ? left[k] : tope)));
+        const v = Math.min(rest, Math.max(0, parseInt(el && el.value, 10) || 0));
         if(v > 0){
           const hr = await sbRpc("wow_merc_hire", { p_token: Game.me.token, p_key: k, p_qty: v });
           done += v;
