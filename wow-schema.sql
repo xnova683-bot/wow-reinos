@@ -7328,8 +7328,8 @@ grant execute on function public.wow_admin_miner_contracts(text) to anon, authen
 -- ================================================================
 -- MERCADO NEGRO: mercenarios (tropas al instante pagando CUP)
 --   soldado 5 · arquero 6 · jinete 9 · mago 12 CUP por unidad
---   el % del admin va a los administradores; el resto se lo llevan
---   los mercenarios (sale de la circulacion).
+--   el % del admin va a los administradores y el resto se reparte
+--   entre tronos y aldeas igual que el pago a la Madam.
 -- ================================================================
 
 insert into wow_settings(key,val) values
@@ -7374,7 +7374,7 @@ grant execute on function public.wow_merc_info(text) to anon, authenticated;
 
 create or replace function public.wow_merc_hire(p_token text, p_key text, p_qty integer)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; price numeric; cantidad integer; cost numeric; admin_cut numeric;
+declare u wow_users; price numeric; cantidad integer; cost numeric; admin_cut numeric; repartido numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -7398,8 +7398,10 @@ begin
   if admin_cut > 0 then
     update wow_users set cup = coalesce(cup,0) + admin_cut where is_admin = true;
   end if;
+  repartido := _wow_tavern_distribute(cost - admin_cut, 'cup');
   return jsonb_build_object('ok', true, 'key', p_key, 'qty', cantidad, 'cost', cost,
-    'admin_cut', admin_cut, 'cup', (select cup from wow_users where id = u.id),
+    'admin_cut', admin_cut, 'shared', repartido,
+    'cup', (select cup from wow_users where id = u.id),
     'total', (select qty from wow_troops where owner_id = u.id and tkey = p_key));
 end $$;
 revoke all on function public.wow_merc_hire(text, text, integer) from public;

@@ -2011,7 +2011,7 @@ const Game = {
         '<label>Mago (CUP/u)<input id="adMcMago" type="number" min="0" max="1000000" step="0.01" value="12"></label>' +
         '<label>% comisión del admin<input id="adMcPct" type="number" min="0" max="100" step="0.01" value="20"></label>' +
       '</div>' +
-      '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el resto se lo llevan los mercenarios (sale de la circulación). · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
+      '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el <b>resto</b> se reparte <b>entero</b> entre los tronos y aldeas ocupados, igual que el pago a la Madam (según los % de arriba). · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
       '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMcGo">Guardar mercenarios</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos de la Madam</h3>' +
@@ -2703,7 +2703,7 @@ Game.openMercs = async function(){
   modal(
     '<h3 style="margin:0 0 8px">🗡️ Mercenarios</h3>' +
     '<div class="mLin">Tienes <b>' + dec(Number(r.cup || 0)) + ' CUP</b></div>' +
-    '<div class="mLin" style="opacity:.85">Se unen a tu ejército al instante. El <b>' + un(Number(r.admin_pct || 0)) + '%</b> del pago se queda como comisión; el resto se lo llevan ellos.</div>' +
+    '<div class="mLin" style="opacity:.85">Se unen a tu ejército al instante. El <b>' + un(Number(r.admin_pct || 0)) + '%</b> del pago es comisión; el resto se reparte entre tronos y aldeas como el pago a la Madam.</div>' +
     '<div style="margin:12px 0">' + rows + '</div>' +
     '<div style="text-align:center;margin-top:6px;opacity:.9" id="mrcTot">Total: 0 CUP</div>' +
     '<div style="text-align:center;margin-top:8px">' +
