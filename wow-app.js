@@ -2552,7 +2552,6 @@ Game.loadTavern = async function(){
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
           '<button id="tvMadam">💃 Madam</button>' +
-          '<button id="tvMiners">⛏️ Mineros</button>' +
           '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon" id="tvSoon"></div>' +
@@ -2560,8 +2559,6 @@ Game.loadTavern = async function(){
     '</div>';
   const mb = $("#tvMadam");
   if(mb) mb.onclick = () => Game.openMadam();
-  const mn = $("#tvMiners");
-  if(mn) mn.onclick = () => Game.openMiners();
 };
 
 Game.madamStories = [
@@ -2581,6 +2578,8 @@ Game.openMadam = async function(){
   let r;
   try{ r = await sbRpc("wow_madam_info", { p_token: this.me.token }); }
   catch(e){ toast(e.message, true); return; }
+  let mr = null;
+  try{ mr = await sbRpc("wow_miner_info", { p_token: this.me.token }); }catch(e){ mr = null; }
   const cost = Number(r.cost), days = Number(r.days);
   const active = r.active === true;
   const remain = Number(r.remain_ms || 0);
@@ -2597,13 +2596,40 @@ Game.openMadam = async function(){
     ? '<div class="mLin">Contrato <b>activo</b> · <b>+' + r.bonus + '</b> de ataque por tropa · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
     : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días</div>') + shareTxt;
   const btn = 'Contratar mis chicas +1 ATK <span style="opacity:.7">· ' + cost + ' CUP</span>';
+  let minHtml = '';
+  let mnDays = 0;
+  if(mr){
+    const mCost = Number(mr.cost), mnDaysV = Number(mr.days);
+    mnDays = mnDaysV;
+    const mRemain = Number(mr.remain_ms || 0);
+    const mDias = Math.floor(mRemain / 86400000), mHoras = Math.floor((mRemain % 86400000) / 3600000);
+    if(!this._minerSeen){ this._minerSeen = []; }
+    let mpool = Game.minerStories.map((_, i) => i).filter(i => this._minerSeen.indexOf(i) < 0);
+    if(!mpool.length){ this._minerSeen = []; mpool = Game.minerStories.map((_, i) => i); }
+    const mpick = mpool[Math.floor(Math.random() * mpool.length)];
+    this._minerSeen.push(mpick);
+    const mst = Game.minerStories[mpick];
+    const mAct = mr.active === true;
+    const mEstado = mAct
+      ? '<div class="mLin">Contrato <b>activo</b> · <b>x2</b> producción de oro, madera y mineral · quedan <b>' + mDias + 'd ' + mHoras + 'h</b></div>'
+      : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + mCost + ' CUP</b> / ' + mnDaysV + ' días</div>';
+    minHtml =
+      '<hr style="margin:16px 0 10px;border:0;border-top:1px solid var(--line)">' +
+      '<h3 style="margin:0 0 8px">⛏️ Mineros y leñadores</h3>' +
+      mEstado +
+      '<div style="margin:12px 0;line-height:1.5"><b>' + esc(mst.t) + '</b><br><span style="opacity:.9">' + esc(mst.s) + '</span></div>' +
+      '<div style="text-align:center;margin-top:6px">' +
+        '<button class="btn" id="mnHire">Contratar mineros x2 producción <span style="opacity:.7">· ' + mCost + ' CUP</span></button>' +
+      '</div>';
+  }
   modal(
     '<h3 style="margin:0 0 8px">💃 La Madam</h3>' +
     estados +
     '<div style="margin:12px 0;line-height:1.5"><b>' + esc(st.t) + '</b><br><span style="opacity:.9">' + esc(st.s) + '</span></div>' +
     '<div style="text-align:center;margin-top:6px">' +
       '<button class="btn" id="mdHire">' + btn + '</button>' +
-    '</div>'
+    '</div>' +
+    minHtml
   );
   const hb = $("#mdHire");
   if(hb) hb.onclick = async () => {
@@ -2837,42 +2863,3 @@ Game.minerStories = [
   { t: "La carreta rota", s: "Una carreta cargada de troncos se ha atascado en el barro. El leñador te mira de reojo: «Arregla esto y mi cuadrilla será tuya hasta la próxima luna.»" },
   { t: "El juramento del pico", s: "Cuando la taberna queda vacía, el viejo capataz clava su pico en la madera. «He abierto minas para reyes y para ladrones. La roca no miente: si pagas, trabajamos. Doscientos, treinta días, y tus arcas no volverán a estar vacías.»" }
 ];
-
-Game.openMiners = async function(){
-  let r;
-  try{ r = await sbRpc("wow_miner_info", { p_token: this.me.token }); }
-  catch(e){ toast(e.message, true); return; }
-  const cost = Number(r.cost), days = Number(r.days);
-  const active = r.active === true;
-  const remain = Number(r.remain_ms || 0);
-  const dias = Math.floor(remain / 86400000), horas = Math.floor((remain % 86400000) / 3600000);
-  if(!this._minerSeen){ this._minerSeen = []; }
-  let pool = Game.minerStories.map((_, i) => i).filter(i => this._minerSeen.indexOf(i) < 0);
-  if(!pool.length){ this._minerSeen = []; pool = Game.minerStories.map((_, i) => i); }
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  this._minerSeen.push(pick);
-  const st = Game.minerStories[pick];
-  const estados = (active
-    ? '<div class="mLin">Contrato <b>activo</b> · <b>x2</b> producción de oro, madera y mineral · quedan <b>' + dias + 'd ' + horas + 'h</b></div>'
-    : '<div class="mLin">Contrato <b>inactivo</b> · coste <b>' + cost + ' CUP</b> / ' + days + ' días</div>');
-  const btn = 'Contratar mineros x2 producción <span style="opacity:.7">· ' + cost + ' CUP</span>';
-  modal(
-    '<h3 style="margin:0 0 8px">⛏️ Mineros y leñadores</h3>' +
-    estados +
-    '<div style="margin:12px 0;line-height:1.5"><b>' + esc(st.t) + '</b><br><span style="opacity:.9">' + esc(st.s) + '</span></div>' +
-    '<div style="text-align:center;margin-top:6px">' +
-      '<button class="btn" id="mnHire">' + btn + '</button>' +
-    '</div>'
-  );
-  const hb = $("#mnHire");
-  if(hb) hb.onclick = async () => {
-    hb.disabled = true;
-    try{
-      const hr = await sbRpc("wow_miner_hire", { p_token: Game.me.token });
-      toast("⛏️ Los mineros se ponen a trabajar. Producción x2 durante " + days + " días.");
-      if(Game.me) Game.me.cup = hr.cup;
-      modalClose();
-      Game.loadTavern && Game.loadTavern();
-    }catch(e){ toast(e.message, true); hb.disabled = false; }
-  };
-};
