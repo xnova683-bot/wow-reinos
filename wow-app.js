@@ -2003,10 +2003,29 @@ const Game = {
       '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMnGo">Guardar mineros</button></div>' +
       '<div style="text-align:center;margin-top:10px"><button class="btn sm" id="adMnListBtn">Ver contratos de mineros</button></div>' +
       '<div id="adMnList" class="admList" style="margin-top:8px"></div>' +
+      '<h3 style="margin:18px 0 6px;color:var(--gold)">🗡️ Mercenarios</h3>' +
+      '<div class="admInputs">' +
+        '<label>Soldado (CUP/u)<input id="adMcSoldado" type="number" min="0" max="1000000" step="0.01" value="5"></label>' +
+        '<label>Arquero (CUP/u)<input id="adMcArquero" type="number" min="0" max="1000000" step="0.01" value="6"></label>' +
+        '<label>Jinete (CUP/u)<input id="adMcJinete" type="number" min="0" max="1000000" step="0.01" value="9"></label>' +
+        '<label>Mago (CUP/u)<input id="adMcMago" type="number" min="0" max="1000000" step="0.01" value="12"></label>' +
+        '<label>% comisión del admin<input id="adMcPct" type="number" min="0" max="100" step="0.01" value="20"></label>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:6px">Se contratan al instante pagando CUP. El <b>% de comisión</b> va a la cuenta del administrador; el resto se lo llevan los mercenarios (sale de la circulación). · Total recaudado: <b><span id="adMcEarned">…</span> CUP</b>.</p>' +
+      '<div style="text-align:center;margin-top:10px"><button class="btn" id="adMcGo">Guardar mercenarios</button></div>' +
       '<div id="admMsg" class="notice" style="margin-top:8px"></div>' +
       '<h3 style="margin:16px 0 6px;color:var(--gold)">Contratos activos de la Madam</h3>' +
       '<div id="adMdmList" class="admList">Cargando…</div>');
     this._loadMadamContracts();
+    sbRpc("wow_admin_merc_stats", { p_token: this.me.token }).then(r => {
+      if(!r) return;
+      const p = r.prices || {};
+      const setV = (id, v) => { const el = $("#" + id); if(el && v != null) el.value = v; };
+      setV("adMcSoldado", p.soldado); setV("adMcArquero", p.arquero);
+      setV("adMcJinete", p.jinete); setV("adMcMago", p.mago);
+      setV("adMcPct", r.admin_pct);
+      const e = $("#adMcEarned"); if(e) e.textContent = dec(Number(r.earned || 0));
+    }).catch(() => {});
     $("#adMdmGo").onclick = async () => {
       const cost = Number($("#adMdmCost").value);
       const days = Number($("#adMdmDays").value);
@@ -2040,6 +2059,26 @@ const Game = {
         notice($("#admMsg"), "Precios de los mineros guardados.", "ok");
         mnGo.disabled = false;
       }catch(e){ mnGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
+    };
+    const mcGo = $("#adMcGo");
+    if(mcGo) mcGo.onclick = async () => {
+      const sv = Number($("#adMcSoldado").value), ar = Number($("#adMcArquero").value);
+      const ji = Number($("#adMcJinete").value), mg = Number($("#adMcMago").value);
+      const pc = Number($("#adMcPct").value);
+      const okP = v => v >= 0 && v <= 1000000;
+      if(!okP(sv) || !okP(ar) || !okP(ji) || !okP(mg)) return notice($("#admMsg"), "Los precios deben estar entre 0 y 1.000.000 CUP.", "danger");
+      if(!(pc >= 0 && pc <= 100)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 100.", "danger");
+      mcGo.disabled = true;
+      try{
+        const r = await sbRpc("wow_admin_setmerc", { p_token: this.me.token, p_soldado: sv, p_arquero: ar, p_jinete: ji, p_mago: mg, p_admin: pc });
+        const p = r.prices || {};
+        const setV = (id, v) => { const el = $("#" + id); if(el && v != null) el.value = v; };
+        setV("adMcSoldado", p.soldado); setV("adMcArquero", p.arquero);
+        setV("adMcJinete", p.jinete); setV("adMcMago", p.mago);
+        setV("adMcPct", r.admin_pct);
+        notice($("#admMsg"), "Precios de los mercenarios guardados.", "ok");
+        mcGo.disabled = false;
+      }catch(e){ mcGo.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const mnLb = $("#adMnListBtn");
     if(mnLb) mnLb.onclick = async () => {
@@ -2552,6 +2591,7 @@ Game.loadTavern = async function(){
       '<div class="tvOverlay">' +
         '<div class="tvBtns">' +
           '<button id="tvMadam">💃 Madam</button>' +
+          '<button id="tvMercs">🗡️ Mercenarios</button>' +
           '<button disabled title="Próximamente">🍺 Beber</button>' +
         '</div>' +
         '<div class="tvSoon" id="tvSoon"></div>' +
@@ -2559,6 +2599,8 @@ Game.loadTavern = async function(){
     '</div>';
   const mb = $("#tvMadam");
   if(mb) mb.onclick = () => Game.openMadam();
+  const mc = $("#tvMercs");
+  if(mc) mc.onclick = () => Game.openMercs();
 };
 
 Game.madamStories = [
@@ -2641,6 +2683,69 @@ Game.openMadam = async function(){
       modalClose();
       Game.loadTavern && Game.loadTavern();
     }catch(e){ toast(e.message, true); hb.disabled = false; }
+  };
+};
+Game.openMercs = async function(){
+  let r;
+  try{ r = await sbRpc("wow_merc_info", { p_token: this.me.token }); }
+  catch(e){ toast(e.message, true); return; }
+  const prices = r.prices || {};
+  const mine = r.troops || {};
+  const keys = ["soldado", "arquero", "jinete", "mago"];
+  const rows = keys.map(k => {
+    const m = TRP[k] || { e: "⚔️", n: k };
+    return '<div style="display:flex;align-items:center;gap:8px;margin:7px 0">' +
+      '<span style="flex:1">' + m.e + ' <b>' + m.n + '</b> <span style="opacity:.6">×' + un(mine[k] || 0) + '</span></span>' +
+      '<span style="opacity:.8;white-space:nowrap">' + dec(Number(prices[k] || 0)) + ' CUP/u</span>' +
+      '<input id="mrc_' + k + '" type="number" min="0" max="5000" value="0" style="width:78px">' +
+    '</div>';
+  }).join("");
+  modal(
+    '<h3 style="margin:0 0 8px">🗡️ Mercenarios</h3>' +
+    '<div class="mLin">Tienes <b>' + dec(Number(r.cup || 0)) + ' CUP</b></div>' +
+    '<div class="mLin" style="opacity:.85">Se unen a tu ejército al instante. El <b>' + un(Number(r.admin_pct || 0)) + '%</b> del pago se queda como comisión; el resto se lo llevan ellos.</div>' +
+    '<div style="margin:12px 0">' + rows + '</div>' +
+    '<div style="text-align:center;margin-top:6px;opacity:.9" id="mrcTot">Total: 0 CUP</div>' +
+    '<div style="text-align:center;margin-top:8px">' +
+      '<button class="btn" id="mrcGo" disabled>Contratar mercenarios</button>' +
+    '</div>'
+  );
+  const calc = () => {
+    let total = 0, n = 0;
+    keys.forEach(k => {
+      const el = $("#mrc_" + k);
+      const v = Math.max(0, parseInt(el && el.value, 10) || 0);
+      total += v * Number(prices[k] || 0); n += v;
+    });
+    const tot = $("#mrcTot"), go = $("#mrcGo");
+    if(tot) tot.innerHTML = "Total: <b>" + dec(total) + " CUP</b>" + (n ? " · " + un(n) + " mercenarios" : "");
+    if(go){ go.disabled = n === 0; go.textContent = n ? ("Contratar " + un(n) + " mercenarios · " + dec(total) + " CUP") : "Contratar mercenarios"; }
+    return { total, n };
+  };
+  keys.forEach(k => { const el = $("#mrc_" + k); if(el) el.oninput = calc; });
+  calc();
+  const go = $("#mrcGo");
+  if(go) go.onclick = async () => {
+    const cur = calc();
+    if(cur.n < 1) return;
+    go.disabled = true;
+    let done = 0;
+    try{
+      for(const k of keys){
+        const el = $("#mrc_" + k);
+        const v = Math.max(0, parseInt(el && el.value, 10) || 0);
+        if(v > 0){
+          const hr = await sbRpc("wow_merc_hire", { p_token: Game.me.token, p_key: k, p_qty: v });
+          done += v;
+          if(Game.me) Game.me.cup = hr.cup;
+        }
+      }
+      toast("🗡️ " + un(done) + " mercenarios se unen a tu ejército.");
+      modalClose();
+      await Game.refresh();
+      if(Game.tab === "troop") Game.renderTroop();
+      Game.loadTavern && Game.loadTavern();
+    }catch(e){ toast(e.message, true); go.disabled = false; }
   };
 };
 Game.thrEvent = function(h, kind){

@@ -116,6 +116,11 @@ const minersheader = "\n-- =====================================================
   "-- APENDICE MINEROS Y LEÑADORES: segundo contrato de la taberna (duplica produccion)\n" +
   "--   (generado desde wow-miners.sql)\n" +
   "-- ================================================================\n";
+const mercs = fs.readFileSync(dir + "wow-mercenaries.sql", "utf8");
+const mercsheader = "\n-- ================================================================\n" +
+  "-- APENDICE MERCADO NEGRO: mercenarios (tropas al instante con CUP)\n" +
+  "--   (generado desde wow-mercenaries.sql)\n" +
+  "-- ================================================================\n";
 const joint = fs.readFileSync(dir + "wow-joint.sql", "utf8");
 const jointheader = "\n-- ================================================================\n" +
   "-- APENDICE ATAQUES CONJUNTOS: una batalla con el ejercito de toda la alianza\n" +
@@ -126,6 +131,6 @@ const botjointheader = "\n-- ===================================================
   "-- APENDICE ATAQUES CONJUNTOS CON LOS REINOS AUTOMATICOS: los bots aportan, convocan y lanzan\n" +
   "--   (generado desde wow-botjoint.sql)\n" +
   "-- ================================================================\n";
-const out = base.replace(/\s*$/, "\n") + header + pvp + cheader + content + aheader + admin + mheader + market + theader + throne + aldheader + aldea + alheader + alliance + chatheader + chat + onheader + online + c4header + cont4 + botsheader + bots + anheader + allynode + diploheader + diplo + bsheader + botswitch + emheader + emblems + bmheader + botmarket + ncheader + contrib + ttheader + timetrust + prodheader + prod + rankheader + rank + giftheader + gift + madamheader + madam + minersheader + miners + jointheader + joint + botjointheader + botjoint;
+const out = base.replace(/\s*$/, "\n") + header + pvp + cheader + content + aheader + admin + mheader + market + theader + throne + aldheader + aldea + alheader + alliance + chatheader + chat + onheader + online + c4header + cont4 + botsheader + bots + anheader + allynode + diploheader + diplo + bsheader + botswitch + emheader + emblems + bmheader + botmarket + ncheader + contrib + ttheader + timetrust + prodheader + prod + rankheader + rank + giftheader + gift + madamheader + madam + minersheader + miners + mercsheader + mercs + jointheader + joint + botjointheader + botjoint;
 fs.writeFileSync(dir + "wow-schema.sql", out);
 console.log("wow-schema.sql ->", out.length, "bytes,", out.split("\n").length, "lines");
