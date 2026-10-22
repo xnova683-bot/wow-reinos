@@ -1932,6 +1932,7 @@ const Game = {
         aldea: Number($("#admProtAldea").value),
         conjunto: Number($("#admProtConj").value)
       };
+      const onm = Number($("#admOnIn").value);
       if(!(v >= 0 && v <= 90)) return notice($("#admMsg"), "La comisión debe estar entre 0 y 90.", "danger");
       if(!(sv >= 0 && sv <= 90)) return notice($("#admMsg"), "El tributo de tronos debe estar entre 0 y 90.", "danger");
       if(!(rg >= 0 && rw >= 0 && ro >= 0)) return notice($("#admMsg"), "La producción de tronos debe ser 0 o mayor.", "danger");
