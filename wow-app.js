@@ -3433,8 +3433,7 @@ Game.loadPalace = async function(){
 
   const paper =
     '<div class="palTop">' +
-      '<div>'+slotsHtml+'</div>' +
-      '<div class="palKing"><img class="pkImg" src="'+kingImg+'" alt="Rey"><div class="pkInfo">' +
+      '<div class="palKing"><img class="pkImg" src="'+kingImg+'" alt="Rey">'+slotsHtml+'<div class="pkInfo">' +
         '<div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
         '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div></div>' +
     '</div>' +
