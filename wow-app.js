@@ -322,6 +322,7 @@ const Auth = {
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
         $("#tabMarket").classList.toggle("hidden", Game.tab !== "market");
         $("#tabTavern").classList.toggle("hidden", Game.tab !== "tavern");
+        $("#tabPalace").classList.toggle("hidden", Game.tab !== "palace");
         $("#tabAdmin").classList.toggle("hidden", Game.tab !== "admin");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
