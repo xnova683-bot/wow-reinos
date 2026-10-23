@@ -108,8 +108,8 @@ begin
   bonus := public.wow_hero_bonus(u.id);
   select coalesce(jsonb_agg(jsonb_build_object('inv_id',iv.id,'item_id',it.id,'slot',it.slot,'name',it.name,'icon',it.icon,'atk',it.atk,'def',it.def)),'[]') into inv
     from public.wow_hero_inventory iv join public.wow_hero_items it on it.id=iv.item_id where iv.owner_id=u.id and iv.qty>0;
-  select coalesce(jsonb_agg(jsonb_build_object('id',it.id,'slot',it.slot,'name',it.name,'icon',it.icon,'atk',it.atk,'def',it.def,'price_gold',it.price_gold,'price_wood',it.price_wood,'price_ore',it.price_ore,'price_cup',it.price_cup,'req_level',it.req_level)),'[]') into shop
-    from public.wow_hero_items it where it.active=true order by it.slot, it.atk+it.def;
+  select coalesce(jsonb_agg(jsonb_build_object('id',it.id,'slot',it.slot,'name',it.name,'icon',it.icon,'atk',it.atk,'def',it.def,'price_gold',it.price_gold,'price_wood',it.price_wood,'price_ore',it.price_ore,'price_cup',it.price_cup,'req_level',it.req_level) order by it.slot, it.atk+it.def),'[]') into shop
+    from public.wow_hero_items it where it.active=true;
   return jsonb_build_object('ok',true,'hero',jsonb_build_object('name',h.name,'level',h.level,'xp',h.xp),'eq',jsonb_build_object('arma',e.arma,'escudo',e.escudo,'casco',e.casco,'armadura',e.armadura,'botas',e.botas,'anillo',e.anillo),'bonus',bonus,'inv',inv,'shop',shop,'me',jsonb_build_object('gold',u.gold,'wood',u.wood,'ore',u.ore,'cup',coalesce(u.cup,0)));
 end $$;
 grant execute on function public.wow_hero_info(text) to anon, authenticated;

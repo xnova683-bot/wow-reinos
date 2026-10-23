@@ -333,6 +333,7 @@ const Auth = {
         if(Game.tab === "chat") Game.renderGChat(); else Game.stopGChatPoll();
         if(Game.tab === "market") Game.loadMarket && Game.loadMarket();
         if(Game.tab === "tavern") Game.loadTavern && Game.loadTavern();
+        if(Game.tab === "palace") Game.loadPalace && Game.loadPalace();
         if(Game.tab === "admin") Game.loadAdmin();
       };
     });
@@ -447,6 +448,7 @@ const Game = {
       this.renderBld(); this.renderTroop(); this.tick();
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
       if(this.tab === "map") this.loadMap();
+      if(this.tab === "palace" && this.loadPalace) this.loadPalace();
       if(this.tab === "mil") this.loadMil();
       if(this.tab === "market" && this.loadMarket) this.loadMarket();
       if(this.tab === "tavern" && this.loadTavern) this.loadTavern();
@@ -1496,6 +1498,7 @@ const Game = {
       toast(r.emblem ? "🎨 Emblema del clan: " + r.emblem : "🧹 Emblema quitado.");
       this.renderEmblem(this._allyInfo || {});
       if(this.tab === "map") this.loadMap();
+      if(this.tab === "palace" && this.loadPalace) this.loadPalace();
     }catch(e){ toast(shortMsg(e), true); }
   },
   vaultHtml(v){
