@@ -1844,6 +1844,7 @@ const Game = {
        '<button class="btn sm" id="admProd">⚙️ Producción ×' + dec(this.prodMult != null ? this.prodMult : 1) + '</button>' +
        '<button class="btn sm" id="admTavern">🍺 Taberna</button>' +
       '<button class="btn sm" id="admBots">🤖 Reinos automáticos' + (autos.length ? ' (' + autos.length + ')' : '') + '</button>' +
+      '<button class="btn sm" id="admCups">🧿 CUP</button>' +
       '<button class="btn sm" id="admClock">🕒 Relojes raros</button>' +
       '<button class="btn sm" id="admRefresh">↻ Actualizar</button></div>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
@@ -1858,7 +1859,8 @@ const Game = {
     const pb = $("#admProd"); if(pb) pb.onclick = () => this.admProd();
     const tb = $("#admTavern"); if(tb) tb.onclick = () => this.admTavern();
     const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
-    const cb = $("#admClock"); if(cb) cb.onclick = () => this.admClock();
+    const cb = $("#admCups"); if(cb) cb.onclick = () => this.admCups();
+    const cc = $("#admClock"); if(cc) cc.onclick = () => this.admClock();
     const fi = $("#admFind"); if(fi){
       fi.oninput = () => { this.admQ = fi.value; const p = fi.value.length; this.renderAdmin(); const n2 = $("#admFind"); if(n2){ n2.focus(); try{ n2.setSelectionRange(p, p); }catch(_){} } };
     }
@@ -1996,6 +1998,30 @@ const Game = {
         modalClose(); toast("Producción global ×" + dec(this.prodMult) + "."); this.loadAdmin();
       }catch(e){ $("#admProdGo").disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
+  },
+
+  async admCups(){
+    modal('<h2 style="margin-top:0;color:var(--gold)">🧿 Estadísticas de CUP</h2><p class="hint">Cargando...</p>');
+    try{
+      const r = await sbRpc("wow_admin_cup_stats", { p_token: this.me.token });
+      const u = r.users || [];
+      const n = r.nodes || [];
+      const fu = u.map(x=>'<tr><td>' + esc(x.name) + '</td><td style="opacity:.7">' + esc(x.id) + '</td><td style="text-align:right">' + fmt(x.cup) + '</td></tr>').join("");
+      const fn = n.map(x=>'<tr><td>' + esc(x.name) + '</td><td>' + (x.kind === "aldea" ? "🛖 Aldea" : "🏯 Fortaleza") + '</td><td>' + esc(x.holder || "-") + '</td><td style="text-align:right">' + fmt(x.cup) + '</td></tr>').join("");
+      const html = '<h2 style="margin-top:0;color:var(--gold)">🧿 Estadísticas de CUP</h2>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 12px">' +
+        '<div class="card" style="flex:1;min-width:200px"><div class="cardT">CUP en jugadores</div><div style="font-size:18px;font-weight:bold">' + fmt(r.total_users) + '</div></div>' +
+        '<div class="card" style="flex:1;min-width:200px"><div class="cardT">CUP en fortalezas</div><div style="font-size:18px;font-weight:bold">' + fmt(r.total_fortalezas) + '</div></div>' +
+        '<div class="card" style="flex:1;min-width:200px"><div class="cardT">CUP en aldeas</div><div style="font-size:18px;font-weight:bold">' + fmt(r.total_aldeas) + '</div></div>' +
+        '<div class="card" style="flex:1;min-width:200px"><div class="cardT">TOTAL</div><div style="font-size:18px;font-weight:bold;color:var(--gold)">' + fmt(r.total) + '</div></div>' +
+        '</div>' +
+        '<div class="secTitle">👥 Por jugador</div>' +
+        '<div style="overflow:auto;max-height:260px"><table class="tbl"><thead><tr><th>Reino</th><th>ID</th><th style="text-align:right">CUP</th></tr></thead><tbody>' + fu + '</tbody></table></div>' +
+        '<div class="secTitle">🏯 Por fortaleza / aldea</div>' +
+        '<div style="overflow:auto;max-height:260px"><table class="tbl"><thead><tr><th>Nodo</th><th>Tipo</th><th>Propietario</th><th style="text-align:right">CUP</th></tr></thead><tbody>' + fn + '</tbody></table></div>' +
+        '<div style="text-align:center;margin-top:10px"><button class="btn" id="cupClose">Cerrar</button></div>';
+      modal(html); $("#cupClose").onclick = modalClose;
+    }catch(e){ modal('<h2 style="margin-top:0;color:var(--bad)">Error</h2><p>' + esc(shortMsg(e)) + '</p><div style="text-align:center"><button class="btn" id="cupC">Cerrar</button></div>'); $("#cupC").onclick = modalClose; }
   },
   admTavern(){
     const m = this.madam || { cost: 50, days: 30, bonus: 1 };
