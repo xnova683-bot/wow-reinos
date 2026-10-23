@@ -351,7 +351,7 @@ declare
   a_forge int; a_fort int; d_forge int; d_fort int;
   who text; whoatt text;
   prot numeric; sg numeric; sw numeric; so numeric;
-  hab jsonb; hdb jsonb;
+  hab jsonb; hdb jsonb; a_bon numeric; d_bon numeric;
 begin
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
 
@@ -407,9 +407,11 @@ begin
     d_fort  := coalesce((select max(level) from wow_buildings where owner_id = f.target and bkey='fortaleza'), 0);
     hab := public.wow_hero_bonus(f.attacker);
     hdb := public.wow_hero_bonus(f.target);
+    a_bon := _wow_madam_bonus(f.attacker);
+    d_bon := _wow_madam_bonus(f.target);
     sim := _wow_sim(f.troops, djson, wall, f.id*7919 + (ms/1000),
                     1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort,
-                    1, 1, null, null, coalesce((hab->>'atk')::numeric,0), coalesce((hdb->>'def')::numeric,0));
+                    a_bon, d_bon, null, null, coalesce((hab->>'atk')::numeric,0), coalesce((hdb->>'def')::numeric,0));
     att_wins := (sim->>'winner') = 'attacker';
 
     -- supervivientes del atacante (sin ceros)
