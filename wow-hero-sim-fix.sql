@@ -3,6 +3,7 @@ drop function if exists public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numer
 drop function if exists public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numeric,numeric,numeric,numeric,numeric) cascade;
 drop function if exists public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numeric,numeric,numeric,numeric,numeric,numeric[],numeric[]) cascade;
 
+-- Versión fix con héroes
 create or replace function public._wow_sim(p_att jsonb, p_def jsonb, p_wall integer, p_seed bigint,
     p_amight numeric default 1, p_dmight numeric default 1, p_atough numeric default 1, p_dtough numeric default 1,
     p_abonus numeric default 0, p_dbonus numeric default 0,
@@ -37,8 +38,6 @@ declare
   astart jsonb := '{}'::jsonb; dstart jsonb := '{}'::jsonb;
   aleft jsonb := '{}'::jsonb; dleft jsonb := '{}'::jsonb;
   aloss jsonb := '{}'::jsonb; dloss jsonb := '{}'::jsonb;
-  abm numeric := 1 + abon * 0.01;
-  dbm numeric := 1 + dbon * 0.01;
   hdbm numeric := 1 + greatest(coalesce(p_hdef,0),0)/100.0;
 begin
   wallF := 1 - least(0.5, greatest(coalesce(p_wall,0),0) * 0.07);
@@ -61,15 +60,15 @@ begin
     noiseA := _wow_noise(p_seed, r*2); noiseD := _wow_noise(p_seed, r*2+1);
     for i in 1..6 loop
       dmgn := 0;
-      for j in 1..6 loop dmgn := dmgn + (dPre[j]*atkA[j]) * _wow_counter(keys[j], keys[i]) * (aHP[i]/greatest(aHPtot,1)); end loop;
-      dmgn := dmgn * dmgK * (1 + noiseD*0.2) * mightD / toughA / abm;
+      for j in 1..6 loop dmgn := dmgn + (dPre[j]*(atkA[j] + coalesce(dbt[j], dbon))) * _wow_counter(keys[j], keys[i]) * (aHP[i]/greatest(aHPtot,1)); end loop;
+      dmgn := dmgn * dmgK * (1 + noiseD*0.2) * mightD / toughA;
       if dmgn > 0 then aCas[i] := aCas[i] + dmgn/hpA[i]; end if;
       aq[i] := greatest(aInit[i] - floor(aCas[i]), 0);
     end loop;
     for j in 1..6 loop
       dmgn := 0;
-      for i in 1..6 loop dmgn := dmgn + (aPre[i]*atkA[i]) * _wow_counter(keys[i], keys[j]) * (dHP[j]/greatest(dHPtot,1)); end loop;
-      dmgn := dmgn * dmgK * wallF * hdbm * (1 + noiseA*0.2) * mightA / toughD * dbm;
+      for i in 1..6 loop dmgn := dmgn + (aPre[i]*(atkA[i] + coalesce(abt[i], abon))) * _wow_counter(keys[i], keys[j]) * (dHP[j]/greatest(dHPtot,1)); end loop;
+      dmgn := dmgn * dmgK * wallF * hdbm * (1 + noiseA*0.2) * mightA / toughD;
       if dmgn > 0 then dCas[j] := dCas[j] + dmgn/hpA[j]; end if;
       dq[j] := greatest(dInit[j] - floor(dCas[j]), 0);
     end loop;
@@ -101,7 +100,9 @@ begin
     aleft := aleft || jsonb_build_object(keys[i], floor(aq[i])); dleft := dleft || jsonb_build_object(keys[i], floor(dq[i]));
     aloss := aloss || jsonb_build_object(keys[i], floor(aInit[i])-floor(aq[i])); dloss := dloss || jsonb_build_object(keys[i], floor(dInit[i])-floor(dq[i]));
   end loop;
-  return jsonb_build_object('winner',winner,'rout',rout,'rounds',rounds,'a_start',astart,'d_start',dstart,'a_left',aleft,'d_left',dleft,'a_loss',aloss,'d_loss',dloss,'a_morale',round(morA),'d_morale',round(morD));
+  return jsonb_build_object('winner',winner,'rout',rout,'rounds',rounds,'a_start',astart,'d_start',dstart,'a_left',aleft,'d_left',dleft,'a_loss',aloss,'d_loss',dloss,'a_morale',round(morA),'d_morale',round(morD),
+    'a_bonus',coalesce((select max(x) from unnest(abt) x), abon),
+    'd_bonus',coalesce((select max(x) from unnest(dbt) x), dbon));
 end $$;
 revoke all on function public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numeric,numeric,numeric,numeric,numeric,numeric[],numeric[],numeric,numeric) from public, anon, authenticated;
 grant execute on function public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numeric,numeric,numeric,numeric,numeric,numeric[],numeric[],numeric,numeric) to service_role, authenticated;
