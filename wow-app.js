@@ -3433,8 +3433,9 @@ Game.loadPalace = async function(){
   const paper =
     '<div class="palTop">' +
       '<div>'+slotsHtml+'</div>' +
-      '<div class="palKing"><div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
-        '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div>' +
+      '<div class="palKing"><img class="pkImg" src="img/rey.jpg" alt="Rey"><div class="pkInfo">' +
+        '<div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
+        '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div></div>' +
     '</div>' +
     '<div class="palInvHead"><div class="secTitle">🎒 Inventario <span class="hint">('+items.length+' tipos)</span></div>' +
       '<input id="palSearch" class="palSearch" type="search" placeholder="Buscar objeto…" autocomplete="off">' +
