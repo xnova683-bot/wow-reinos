@@ -429,14 +429,15 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 
 /* ---------- palacio ---------- */
 .palTop{display:grid; grid-template-columns:1fr; gap:10px; align-items:stretch}
-.palSlots{position:absolute; left:10px; right:10px; top:10px; z-index:2; display:grid; grid-template-columns:1fr; gap:4px; padding:6px; background:rgba(8,5,4,.62); border:1px solid rgba(255,255,255,.14); border-radius:9px; backdrop-filter:blur(3px)}
+.palSlots{display:grid; grid-template-columns:1fr; gap:4px; padding:6px; background:rgba(8,5,4,.62); border:1px solid rgba(255,255,255,.14); border-radius:9px; backdrop-filter:blur(3px)}
 .palSlot{display:flex; align-items:center; gap:6px; padding:5px 7px; background:rgba(0,0,0,.32); border:1px solid var(--line); border-radius:7px; min-width:0}
 .palSlot .psName{color:var(--dim); font-size:11px; width:82px; flex:none; white-space:nowrap}
 .palSlot .psItem{flex:1; min-width:0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .palSlot .btn.sm{padding:2px 7px; font-size:11px; line-height:1.2}
 .palKing{position:relative; width:100%; max-width:390px; margin:0 auto; padding:0; overflow:hidden; background:#120c07; border:1px solid var(--line); border-radius:12px}
 .palKing .pkImg{display:block; width:100%; height:auto}
-.palKing .pkInfo{position:absolute; left:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; text-align:center; padding:34px 12px 12px; background:linear-gradient(rgba(8,5,4,0),rgba(8,5,4,.92))}
+.palKing .pkOverlay{position:absolute; left:9px; right:9px; bottom:9px; z-index:2; display:flex; flex-direction:column; gap:6px}
+.palKing .pkInfo{display:flex; flex-direction:column; align-items:center; text-align:center; padding:10px 12px 12px; background:rgba(8,5,4,.62); border:1px solid rgba(255,255,255,.14); border-radius:9px; backdrop-filter:blur(3px)}
 .palKing .pkCrown{font-size:34px; line-height:1; text-shadow:0 1px 4px rgba(0,0,0,.9)}
 .palKing .pkName{font-weight:bold; margin-top:2px; text-shadow:0 1px 4px rgba(0,0,0,.9)}
 .palKing .hint{text-shadow:0 1px 3px rgba(0,0,0,.9)}
@@ -592,5 +593,5 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
   <pre id="logPre"></pre>
 </div>
 
-    <script src="wow-app.js?v=20261023e"></script>
+    <script src="wow-app.js?v=20261023f"></script>
 </body></html>
