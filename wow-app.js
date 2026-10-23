@@ -3384,6 +3384,7 @@ Game.loadPalace = async function(){
   this._palSig = sig;
   this._pal = d;
   const h = d.hero||{}, eq = d.eq||{}, bonus = d.bonus||{}, inv = d.inv||[], shop = d.shop||[];
+  const kingImg = (this.me && this.me.faction === "horda") ? "img/rey_horda.jpg" : "img/rey.jpg";
   const eqIds = new Set(PAL_SLOTS.map(sl => Number(eq[sl])).filter(Boolean));
   const curTab = PAL_SLOTS.indexOf(this._palTab) >= 0 ? this._palTab : "todos";
   this._palTab = curTab;
@@ -3433,7 +3434,7 @@ Game.loadPalace = async function(){
   const paper =
     '<div class="palTop">' +
       '<div>'+slotsHtml+'</div>' +
-      '<div class="palKing"><img class="pkImg" src="img/rey.jpg" alt="Rey"><div class="pkInfo">' +
+      '<div class="palKing"><img class="pkImg" src="'+kingImg+'" alt="Rey"><div class="pkInfo">' +
         '<div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
         '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div></div>' +
     '</div>' +
