@@ -3362,3 +3362,44 @@ Game.minerStories = [
   { t: "La carreta rota", s: "Una carreta cargada de troncos se ha atascado en el barro. El leñador te mira de reojo: «Arregla esto y mi cuadrilla será tuya hasta la próxima luna.»" },
   { t: "El juramento del pico", s: "Cuando la taberna queda vacía, el viejo capataz clava su pico en la madera. «He abierto minas para reyes y para ladrones. La roca no miente: si pagas, trabajamos. Doscientos, treinta días, y tus arcas no volverán a estar vacías.»" }
 ];
+
+/* ---------------- PALACIO (Rey Equipable) ---------------- */
+Game.loadPalace = async function(){
+  const el = document.getElementById("tabPalace"); if(!el) return;
+  const first = !this._palSig;
+  if(first) el.innerHTML = '<p class="empty">Cargando Palacio...</p>';
+  let d;
+  try{ d = await sbRpc("wow_hero_info", { p_token: this.me.token }); }
+  catch(e){ if(first) el.innerHTML = '<p class="empty">'+esc(shortMsg(e))+'</p>'; return; }
+  const sig = JSON.stringify(d);
+  if(sig === this._palSig) return;
+  this._palSig = sig;
+  this._pal = d;
+  const h = d.hero||{}, eq = d.eq||{}, bonus = d.bonus||{}, inv = d.inv||[], shop = d.shop||[], me = d.me||{};
+  const slotName = {arma:'⚔️ Arma',escudo:'🛡️ Escudo',casco:'⛑️ Casco',armadura:'👕 Armadura',botas:'👢 Botas',anillo:'💍 Anillo'};
+  const slots = ['arma','escudo','casco','armadura','botas','anillo'];
+  function findInv(id){ return inv.find(x=>x.item_id==id); }
+  let paper = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:start"><div>';
+  slots.forEach(sl=>{
+    const iid = eq[sl]; const it = iid ? inv.find(x=>x.item_id==iid) : null;
+    paper += '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;padding:6px 8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span style="width:90px">'+slotName[sl]+'</span><span style="flex:1">'+(it?it.icon+' '+esc(it.name):'<span style="opacity:.6">Vacío</span>')+'</span>'+(it?'<button class="btn sm" data-uneq="'+sl+'">Quitar</button>':'')+'</div>';
+  });
+  paper += '</div><div style="text-align:center"><div style="font-size:48px">👑</div><div style="font-weight:bold;margin-top:6px">'+esc(h.name||'Rey')+'</div><div class="hint">Ataque: +'+(bonus.atk||0)+'% · Defensa: +'+(bonus.def||0)+'%</div></div><div><div class="secTitle">🎒 Inventario</div>';
+  if(!inv.length) paper += '<div class="empty">Sin objetos</div>'; else inv.forEach(x=>{
+    paper += '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;padding:6px 8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span>'+x.icon+'</span><span style="flex:1">'+esc(x.name)+' <span class="hint">+'+x.atk+' ATK / +'+x.def+' DEF</span></span><button class="btn sm" data-eq="'+x.item_id+'">Equipar</button></div>';
+  });
+  paper += '</div></div>';
+  let shopHtml = '<div class="secTitle">🛒 Herrería del Palacio</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px">';
+  shop.forEach(it=>{
+    const pc = (it.price_gold?'💰'+un(it.price_gold):'')+(it.price_wood?' 🪵'+un(it.price_wood):'')+(it.price_ore?' ⛏️'+un(it.price_ore):'')+(it.price_cup?' 🧿'+un(it.price_cup):'')||'Gratis';
+    shopHtml += '<div style="display:flex;gap:8px;align-items:center;padding:8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span style="font-size:22px">'+it.icon+'</span><div style="flex:1"><b>'+esc(it.name)+'</b><div class="hint">'+slotName[it.slot]+' · +' +it.atk+' ATK / +' +it.def+' DEF</div><div class="hint">'+pc+'</div></div><button class="btn sm" data-buy="'+it.id+'">Comprar</button></div>';
+  });
+  shopHtml += '</div>';
+  el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">👑 Palacio</h2><p class="hint">Tu Rey acompaña al ejército en batalla y otorga sus bonos de equipo.</p>'+paper+shopHtml+'<div id="palMsg" class="notice"></div>';
+  el.querySelectorAll('[data-uneq]').forEach(b=>b.onclick=()=>this.heroUnequip(b.dataset.uneq));
+  el.querySelectorAll('[data-eq]').forEach(b=>b.onclick=()=>this.heroEquip(Number(b.dataset.eq)));
+  el.querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>this.heroBuy(Number(b.dataset.buy)));
+};
+Game.heroEquip = async function(id){ try{ await sbRpc('wow_hero_equip',{p_token:this.me.token,p_item:id}); toast('Equipado.'); this._palSig=null; await this.loadPalace(); }catch(e){ toast(shortMsg(e),true); } };
+Game.heroUnequip = async function(sl){ try{ await sbRpc('wow_hero_unequip',{p_token:this.me.token,p_slot:sl}); toast('Desequipado.'); this._palSig=null; await this.loadPalace(); }catch(e){ toast(shortMsg(e),true); } };
+Game.heroBuy = async function(id){ try{ await sbRpc('wow_hero_buy',{p_token:this.me.token,p_item:id}); toast('Comprado.'); this._palSig=null; await this.loadPalace(); }catch(e){ toast(shortMsg(e),true); } };
