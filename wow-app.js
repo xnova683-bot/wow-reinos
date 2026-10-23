@@ -3368,6 +3368,8 @@ Game.minerStories = [
 ];
 
 /* ---------------- PALACIO (Rey Equipable) ---------------- */
+const PAL_SLOTS = ['arma','escudo','casco','armadura','botas','anillo'];
+const PAL_SLOT_NAME = {arma:'⚔️ Arma',escudo:'🛡️ Escudo',casco:'⛑️ Casco',armadura:'👕 Armadura',botas:'👢 Botas',anillo:'💍 Anillo'};
 Game.loadPalace = async function(){
   const el = document.getElementById("tabPalace"); if(!el) return;
   const first = !this._palSig;
@@ -3377,32 +3379,129 @@ Game.loadPalace = async function(){
   catch(e){ if(first) el.innerHTML = '<p class="empty">'+esc(shortMsg(e))+'</p>'; return; }
   const sig = JSON.stringify(d);
   if(sig === this._palSig) return;
+  const ae = document.activeElement;
+  if(!first && ae && ae.id === "palSearch" && el.contains(ae)) return;
   this._palSig = sig;
   this._pal = d;
-  const h = d.hero||{}, eq = d.eq||{}, bonus = d.bonus||{}, inv = d.inv||[], shop = d.shop||[], me = d.me||{};
-  const slotName = {arma:'⚔️ Arma',escudo:'🛡️ Escudo',casco:'⛑️ Casco',armadura:'👕 Armadura',botas:'👢 Botas',anillo:'💍 Anillo'};
-  const slots = ['arma','escudo','casco','armadura','botas','anillo'];
-  function findInv(id){ return inv.find(x=>x.item_id==id); }
-  let paper = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:start"><div>';
-  slots.forEach(sl=>{
-    const iid = eq[sl]; const it = iid ? inv.find(x=>x.item_id==iid) : null;
-    paper += '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;padding:6px 8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span style="width:90px">'+slotName[sl]+'</span><span style="flex:1">'+(it?it.icon+' '+esc(it.name):'<span style="opacity:.6">Vacío</span>')+'</span>'+(it?'<button class="btn sm" data-uneq="'+sl+'">Quitar</button>':'')+'</div>';
+  const h = d.hero||{}, eq = d.eq||{}, bonus = d.bonus||{}, inv = d.inv||[], shop = d.shop||[];
+  const eqIds = new Set(PAL_SLOTS.map(sl => Number(eq[sl])).filter(Boolean));
+  const curTab = PAL_SLOTS.indexOf(this._palTab) >= 0 ? this._palTab : "todos";
+  this._palTab = curTab;
+
+  let slotsHtml = '<div class="palSlots">';
+  PAL_SLOTS.forEach(sl=>{
+    const iid = Number(eq[sl]||0);
+    const it = iid ? inv.find(x=>Number(x.item_id)===iid) : null;
+    slotsHtml += '<div class="palSlot"><span class="psName">'+PAL_SLOT_NAME[sl]+'</span>' +
+      '<span class="psItem">'+(it ? esc(it.icon||"")+' '+esc(it.name) : '<span style="opacity:.55">Vacío</span>')+'</span>' +
+      (it ? '<button class="btn sm" data-uneq="'+sl+'">Quitar</button>' : '') + '</div>';
   });
-  paper += '</div><div style="text-align:center"><div style="font-size:48px">👑</div><div style="font-weight:bold;margin-top:6px">'+esc(h.name||'Rey')+'</div><div class="hint">Ataque: +'+(bonus.atk||0)+'% · Defensa: +'+(bonus.def||0)+'%</div></div><div><div class="secTitle">🎒 Inventario</div>';
-  if(!inv.length) paper += '<div class="empty">Sin objetos</div>'; else inv.forEach(x=>{
-    paper += '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;padding:6px 8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span>'+x.icon+'</span><span style="flex:1">'+esc(x.name)+' <span class="hint">+'+x.atk+' ATK / +'+x.def+' DEF</span></span><button class="btn sm" data-eq="'+x.item_id+'">Equipar</button></div>';
+  slotsHtml += '</div>';
+
+  const byId = new Map();
+  inv.forEach(x=>{
+    const id = Number(x.item_id); if(!id) return;
+    const q = Math.max(1, Number(x.qty||1)||1);
+    const g = byId.get(id);
+    if(g) g.qty += q;
+    else byId.set(id, Object.assign({}, x, {item_id:id, atk:Number(x.atk||0), def:Number(x.def||0), qty:q}));
   });
-  paper += '</div></div>';
-  let shopHtml = '<div class="secTitle">🛒 Herrería del Palacio</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px">';
+  const items = Array.from(byId.values()).sort((a,b)=>
+    (PAL_SLOTS.indexOf(a.slot)-PAL_SLOTS.indexOf(b.slot)) ||
+    ((b.atk+b.def)-(a.atk+a.def)) ||
+    String(a.name||"").localeCompare(String(b.name||"")));
+  const counts = {todos: items.length};
+  PAL_SLOTS.forEach(sl=>{ counts[sl] = items.filter(x=>x.slot===sl).length; });
+
+  let tabs = '<button class="palTab'+(curTab==="todos"?" on":"")+'" data-palslot="todos">Todos <span class="n">('+counts.todos+')</span></button>';
+  PAL_SLOTS.forEach(sl=>{
+    tabs += '<button class="palTab'+(curTab===sl?" on":"")+'" data-palslot="'+sl+'">'+PAL_SLOT_NAME[sl]+' <span class="n">('+counts[sl]+')</span></button>';
+  });
+
+  let cards = '';
+  items.forEach(x=>{
+    const on = eqIds.has(x.item_id);
+    cards += '<div class="palItem'+(on?' on':'')+'" data-slot="'+esc(x.slot||"")+'" data-name="'+esc(String(x.name||"").toLowerCase())+'">' +
+      '<span class="piIcon">'+esc(x.icon||"🎁")+'</span>' +
+      '<div class="piBody"><div class="piName" title="'+esc(x.name||"")+'">'+esc(x.name||"?")+(x.qty>1?'<span class="piQty">x'+x.qty+'</span>':'')+'</div>' +
+      '<div class="piStats">+'+x.atk+' ATK · +'+x.def+' DEF</div></div>' +
+      (on ? '<span class="piOk">✅</span>' : '<button class="btn sm" data-eq="'+x.item_id+'">Equipar</button>') +
+      '</div>';
+  });
+  if(!items.length) cards = '<div class="empty" style="grid-column:1/-1">Sin objetos. Compra equipo en la Herrería.</div>';
+
+  const paper =
+    '<div class="palTop">' +
+      '<div>'+slotsHtml+'</div>' +
+      '<div class="palKing"><div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
+        '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div>' +
+    '</div>' +
+    '<div class="palInvHead"><div class="secTitle">🎒 Inventario <span class="hint">('+items.length+' tipos)</span></div>' +
+      '<input id="palSearch" class="palSearch" type="search" placeholder="Buscar objeto…" autocomplete="off">' +
+      '<button class="btn sm hidden" id="palBest">⬆️ Equipar el mejor</button></div>' +
+    '<div class="palTabs">'+tabs+'</div>' +
+    '<div class="palInvGrid" id="palInvGrid">'+cards+
+      '<div class="empty hidden" id="palNoRes" style="grid-column:1/-1">Sin resultados.</div></div>';
+
+  let shopHtml = '<div class="secTitle">🛒 Herrería del Palacio</div><div class="shopGrid">';
   shop.forEach(it=>{
     const pc = (it.price_gold?'💰'+un(it.price_gold):'')+(it.price_wood?' 🪵'+un(it.price_wood):'')+(it.price_ore?' ⛏️'+un(it.price_ore):'')+(it.price_cup?' 🧿'+un(it.price_cup):'')||'Gratis';
-    shopHtml += '<div style="display:flex;gap:8px;align-items:center;padding:8px;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px"><span style="font-size:22px">'+it.icon+'</span><div style="flex:1"><b>'+esc(it.name)+'</b><div class="hint">'+slotName[it.slot]+' · +' +it.atk+' ATK / +' +it.def+' DEF</div><div class="hint">'+pc+'</div></div><button class="btn sm" data-buy="'+it.id+'">Comprar</button></div>';
+    shopHtml += '<div class="shopItem"><span class="siIcon">'+esc(it.icon||"")+'</span><div class="siBody"><b>'+esc(it.name)+'</b>' +
+      '<div class="hint">'+(PAL_SLOT_NAME[it.slot]||"")+' · +'+(Number(it.atk)||0)+' ATK / +'+(Number(it.def)||0)+' DEF</div>' +
+      '<div class="hint">'+pc+'</div></div><button class="btn sm" data-buy="'+Number(it.id)+'">Comprar</button></div>';
   });
   shopHtml += '</div>';
-  el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">👑 Palacio</h2><p class="hint">Tu Rey acompaña al ejército en batalla y otorga sus bonos de equipo.</p>'+paper+shopHtml+'<div id="palMsg" class="notice"></div>';
+
+  const oldGrid = el.querySelector(".palInvGrid");
+  const oldTop = oldGrid ? oldGrid.scrollTop : 0;
+  el.innerHTML = '<h2 style="margin-top:0;color:var(--gold)">👑 Palacio</h2><p class="hint">Tu Rey acompaña al ejército en batalla y otorga sus bonos de equipo.</p>' +
+    paper + shopHtml + '<div id="palMsg" class="notice"></div>';
+  const newGrid = document.getElementById("palInvGrid");
+  if(newGrid && oldTop) newGrid.scrollTop = oldTop;
+
+  const noRes = document.getElementById("palNoRes");
+  const bestBtn = document.getElementById("palBest");
+  const applyPalFilter = () => {
+    const q = (this._palQ || "").trim().toLowerCase();
+    let shown = 0;
+    el.querySelectorAll(".palItem").forEach(c=>{
+      const ok = (this._palTab === "todos" || c.dataset.slot === this._palTab) && (!q || (c.dataset.name||"").indexOf(q) >= 0);
+      c.classList.toggle("hidden", !ok);
+      if(ok) shown++;
+    });
+    if(noRes) noRes.classList.toggle("hidden", shown > 0 || !items.length);
+    if(bestBtn){
+      let best = null, cur = null;
+      if(this._palTab !== "todos"){
+        items.forEach(x=>{
+          if(x.slot !== this._palTab) return;
+          if(eqIds.has(x.item_id)) cur = x;
+          else if(!best || (x.atk+x.def) > (best.atk+best.def)) best = x;
+        });
+      }
+      const better = best && (!cur || (best.atk+best.def) > (cur.atk+cur.def));
+      bestBtn.classList.toggle("hidden", !better);
+      if(better) bestBtn.dataset.eq = String(best.item_id);
+    }
+  };
+
+  const search = document.getElementById("palSearch");
+  if(search){
+    search.value = this._palQ || "";
+    search.oninput = () => { this._palQ = search.value; applyPalFilter(); };
+  }
+  if(bestBtn) bestBtn.onclick = () => { const id = Number(bestBtn.dataset.eq); if(id) this.heroEquip(id); };
+  el.querySelectorAll('[data-palslot]').forEach(b=>{
+    b.onclick = () => {
+      this._palTab = b.dataset.palslot;
+      el.querySelectorAll('[data-palslot]').forEach(x=>x.classList.toggle("on", x===b));
+      applyPalFilter();
+    };
+  });
   el.querySelectorAll('[data-uneq]').forEach(b=>b.onclick=()=>this.heroUnequip(b.dataset.uneq));
   el.querySelectorAll('[data-eq]').forEach(b=>b.onclick=()=>this.heroEquip(Number(b.dataset.eq)));
   el.querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>this.heroBuy(Number(b.dataset.buy)));
+  applyPalFilter();
 };
 Game.heroEquip = async function(id){ try{ await sbRpc('wow_hero_equip',{p_token:this.me.token,p_item:id}); toast('Equipado.'); this._palSig=null; await this.loadPalace(); }catch(e){ toast(shortMsg(e),true); } };
 Game.heroUnequip = async function(sl){ try{ await sbRpc('wow_hero_unequip',{p_token:this.me.token,p_slot:sl}); toast('Desequipado.'); this._palSig=null; await this.loadPalace(); }catch(e){ toast(shortMsg(e),true); } };
