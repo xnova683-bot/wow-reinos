@@ -2592,15 +2592,18 @@ Game.loadMarket = async function(){
   if(!first && ae && el.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "SELECT" || ae.tagName === "TEXTAREA")) return;
   this._mktSig = sig;
   const st = this.st || {};
-  const inv = { cup: st.cup || 0, gold: st.gold || 0, wood: st.wood || 0, ore: st.ore || 0 };
-  (st.troops || []).forEach(t => inv[t.key] = t.qty);
+  const inv = { cup: Number(st.cup || 0), gold: Number(st.gold || 0), wood: Number(st.wood || 0), ore: Number(st.ore || 0) };
+  (st.troops || []).forEach(t => inv[t.key] = Number(t.qty || 0));
+  const enVenta = {};
+  (d.mine || []).forEach(o => { enVenta[o.give] = (enVenta[o.give] || 0) + Number(o.give_left || 0); });
   const optsGive = MKT_ITEMS.map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
   const optsWant = ['cup'].map(k => '<option value="' + k + '">' + esc(mktName(k)) + '</option>').join("");
   let html = '<h2 style="margin-top:0;color:var(--gold)">🛒 Mercado</h2>' +
-    '<p class="hint">Publica ofertas y toma las de otros reinos. Comisión actual: <b>' + un(d.fee) + '%</b> (la paga el vendedor). Las ofertas caducan en 1 día. En <b>Pido</b> solo puedes pedir 🧿 CUP.</p>' +
+    '<p class="hint">Publica ofertas y toma las de otros reinos. Comisión actual: <b>' + un(d.fee) + '%</b> (la paga el vendedor). Las ofertas caducan en 1 día. En <b>Pido</b> solo puedes pedir 🧿 CUP.<br>Los recursos se quedan en tu reino. Si los gastas, las ventas que ya no se puedan cubrir se cancelan automáticamente.</p>' +
     '<div class="secTitle">📢 Publicar oferta</div>' +
     '<div class="mktPub">' +
       '<label>Doy <select id="mkGive">' + optsGive + '</select>' +
+        '<div class="hint" id="mkBal" style="margin:2px 0 4px">Tienes: 0 | En venta: 0 | Disponible: 0</div>' +
         '<input id="mkGiveQty" type="number" min="0" value="0"><button class="btn sm" id="mkGiveMax">MAX</button></label>' +
       '<label>Pido <select id="mkWant" disabled>' + optsWant + '</select>' +
         '<input id="mkWantQty" type="number" min="0" value="0"></label>' +
@@ -2625,8 +2628,26 @@ Game.loadMarket = async function(){
       '<div class="fcount"><button class="btn sm danger" data-cancel="' + o.id + '">Cancelar</button></div></div>'
     ).join("");
   el.innerHTML = html;
+  const updateBal = () => {
+    const k = $("#mkGive").value;
+    const t = Number(inv[k] || 0);
+    const e = Number(enVenta[k] || 0);
+    const d2 = Math.max(0, Math.floor(t - e));
+    const be = $("#mkBal");
+    if(be) be.textContent = "Tienes: " + un(t) + " | En venta: " + un(e) + " | Disponible: " + un(d2);
+    const q = $("#mkGiveQty");
+    if(q && Number(q.value) > d2 && d2 >= 0) { /* keep */ }
+  };
+  const mkG = $("#mkGive");
+  if(mkG) mkG.onchange = updateBal;
+  updateBal();
   const maxb = $("#mkGiveMax");
-  if(maxb) maxb.onclick = () => { const k = $("#mkGive").value; $("#mkGiveQty").value = Math.floor(inv[k] || 0); };
+  if(maxb) maxb.onclick = () => { 
+    const k = $("#mkGive").value; 
+    const d2 = Math.max(0, Math.floor(Number(inv[k]||0) - Number(enVenta[k]||0)));
+    $("#mkGiveQty").value = d2;
+    updateBal();
+  };
   const gb = $("#mkPubGo");
   if(gb) gb.onclick = () => this.mktPublish();
   el.querySelectorAll("button[data-take]").forEach(b => b.onclick = () => this.mktTake(Number(b.dataset.take)));
@@ -2637,6 +2658,13 @@ Game.mktPublish = async function(){
   const gq = Number($("#mkGiveQty").value) || 0, wq = Number($("#mkWantQty").value) || 0;
   if(gq <= 0 || wq <= 0) return toast("Pon cantidades mayores que 0.", true);
   if(g === w) return toast("No puedes cambiar un objeto por sí mismo.", true);
+  const st = this.st || {};
+  const inv = { cup: Number(st.cup || 0), gold: Number(st.gold || 0), wood: Number(st.wood || 0), ore: Number(st.ore || 0) };
+  (st.troops || []).forEach(t => inv[t.key] = Number(t.qty || 0));
+  const enVenta = {};
+  (this.mkt && this.mkt.mine ? this.mkt.mine : []).forEach(o => { enVenta[o.give] = (enVenta[o.give] || 0) + Number(o.give_left || 0); });
+  const disp = Math.max(0, Math.floor(Number(inv[g]||0) - Number(enVenta[g]||0)));
+  if(gq > disp) return toast("No tienes suficiente disponible para vender esa cantidad.", true);
   try{
     await sbRpc("wow_market_offer", { p_token: this.me.token, p_give: g, p_give_qty: gq, p_want: w, p_want_qty: wq });
     toast("📢 Oferta publicada."); await this.refresh();

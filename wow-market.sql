@@ -115,7 +115,7 @@ grant execute on function public.wow_market_fee() to anon, authenticated;
 -- ---- publicar oferta ----
 create or replace function public.wow_market_offer(p_token text, p_give text, p_give_qty numeric, p_want text, p_want_qty numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; ms bigint; n integer; nid bigint;
+declare u wow_users; ms bigint; n integer; nid bigint; cur numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -136,7 +136,14 @@ begin
     raise exception 'Las tropas se comercian en unidades enteras.'; end if;
   select count(*) into n from wow_market_offers where seller = u.id and active;
   if n >= 5 then raise exception 'Ya tienes el máximo de 5 ofertas activas.'; end if;
-  perform _wow_mkt_sub(u.id, p_give, p_give_qty);
+  -- Comprobar que tiene suficientes recursos/tropas (no se retiran, solo se comprueban)
+  if p_give in ('gold','wood','ore','cup') then
+    cur := case p_give when 'gold' then u.gold when 'wood' then u.wood when 'ore' then u.ore else coalesce(u.cup,0) end;
+    if coalesce(cur,0) < p_give_qty then raise exception 'No tienes suficientes recursos para vender esa cantidad.'; end if;
+  else
+    select qty into cur from wow_troops where owner_id = u.id and tkey = p_give;
+    if coalesce(cur,0) < p_give_qty then raise exception 'No tienes suficientes tropas para vender esa cantidad.'; end if;
+  end if;
   insert into wow_market_offers(seller, seller_name, give_key, give_qty, give_left, want_key, want_qty, want_left, created, expires_ms, active)
     values (u.id, u.name, p_give, p_give_qty, p_give_qty, p_want, p_want_qty, p_want_qty, ms, ms + 86400000, true)
     returning id into nid;
@@ -179,8 +186,9 @@ grant execute on function public.wow_market_list(text) to anon, authenticated;
 create or replace function public.wow_market_take(p_token text, p_id bigint, p_qty numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
-  u wow_users; o wow_market_offers; ms bigint;
+  u wow_users; v wow_users; o wow_market_offers; ms bigint;
   take numeric; want_part numeric; fee numeric; net numeric; new_left numeric;
+  vcur numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -191,10 +199,28 @@ begin
   select * into o from wow_market_offers where id = p_id for update;
   if o.id is null or not o.active then raise exception 'Esa oferta ya no está disponible.'; end if;
   if o.expires_ms <= ms then
-    perform _wow_mkt_add(o.seller, o.give_key, o.give_left);
     update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
     raise exception 'Esa oferta ha caducado.'; end if;
   if o.seller = u.id then raise exception 'Esa oferta es tuya.'; end if;
+  -- verificar que el vendedor sigue teniendo lo que ofrece
+  select * into v from wow_users where id = o.seller for update;
+  if v.id is null then
+    update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+    raise exception 'Esa oferta ya no está disponible.'; end if;
+  if o.give_key in ('gold','wood','ore','cup') then
+    vcur := case o.give_key when 'gold' then v.gold when 'wood' then v.wood when 'ore' then v.ore else coalesce(v.cup,0) end;
+    if coalesce(vcur,0) < coalesce(o.give_left,0) then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esos recursos. La venta se ha cancelado.';
+    end if;
+  else
+    select qty into vcur from wow_troops where owner_id = o.seller and tkey = o.give_key;
+    if coalesce(vcur,0) < coalesce(o.give_left,0) then
+      delete from wow_troops where owner_id = o.seller and tkey = o.give_key and qty <= 0;
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esas tropas. La venta se ha cancelado.';
+    end if;
+  end if;
   take := coalesce(p_qty, 0);
   if take <= 0 then raise exception 'Cantidad inválida.'; end if;
   if take >= o.give_left then
@@ -212,11 +238,27 @@ begin
     if want_part > o.want_left then want_part := o.want_left; end if;
     if want_part <= 0 then raise exception 'Cantidad demasiado pequeña.'; end if;
   end if;
+  -- comprobar que el vendedor sigue teniendo suficiente para la parte que se va a vender ahora
+  if o.give_key in ('gold','wood','ore','cup') then
+    vcur := case o.give_key when 'gold' then (select gold from wow_users where id = o.seller) when 'wood' then (select wood from wow_users where id = o.seller) when 'ore' then (select ore from wow_users where id = o.seller) else (select coalesce(cup,0) from wow_users where id = o.seller) end;
+    if coalesce(vcur,0) < take then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esos recursos. La venta se ha cancelado.';
+    end if;
+  else
+    select qty into vcur from wow_troops where owner_id = o.seller and tkey = o.give_key;
+    if coalesce(vcur,0) < take then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esas tropas. La venta se ha cancelado.';
+    end if;
+  end if;
   -- el comprador paga el total (want)
   perform _wow_mkt_sub(u.id, o.want_key, want_part);
-  -- recibe lo ofrecido (give)
+  -- el vendedor entrega lo que vende (ahora sí se quita)
+  perform _wow_mkt_sub(o.seller, o.give_key, take);
+  -- recibe lo ofrecido el comprador
   perform _wow_mkt_add(u.id, o.give_key, take);
-  -- el vendedor recibe want menos comision; el resto se destruye
+  -- el vendedor recibe want menos comision
   fee := _wow_mkt_fee();
   net := want_part * (1 - fee/100.0);
   if _wow_mkt_is_troop(o.want_key) then net := round(net); end if;
@@ -233,10 +275,10 @@ begin
 end $$;
 grant execute on function public.wow_market_take(text, bigint, numeric) to anon, authenticated;
 
--- ---- cancelar oferta propia (devuelve lo reservado) ----
+-- ---- cancelar oferta propia ----
 create or replace function public.wow_market_cancel(p_token text, p_id bigint)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; o wow_market_offers; r numeric;
+declare u wow_users; o wow_market_offers;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -244,10 +286,8 @@ begin
   select * into o from wow_market_offers where id = p_id for update;
   if o.id is null or not o.active then raise exception 'La oferta ya no existe.'; end if;
   if o.seller <> u.id then raise exception 'Esa oferta no es tuya.'; end if;
-  r := o.give_left;
-  perform _wow_mkt_add(u.id, o.give_key, r);
   update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
-  return jsonb_build_object('ok', true, 'refund', r);
+  return jsonb_build_object('ok', true);
 end $$;
 grant execute on function public.wow_market_cancel(text, bigint) to anon, authenticated;
 

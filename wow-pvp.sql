@@ -350,6 +350,7 @@ declare
   att_wins boolean; wall integer; ret integer;
   a_forge int; a_fort int; d_forge int; d_fort int;
   who text; whoatt text;
+  prot numeric; sg numeric; sw numeric; so numeric;
 begin
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
 
@@ -424,9 +425,13 @@ begin
     if att_wins then
       select coalesce(sum((x.v)::int * _wow_cargo(x.k)),0) into cargo from jsonb_each_text(surv) x(k,v);
       select gold, wood, ore into defg, defw, defo from wow_users where id = f.target;
-      lg := least(floor(coalesce(defg,0)*0.5), cargo); rem := cargo - lg;
-      lw := least(floor(coalesce(defw,0)*0.5), rem); rem := rem - lw;
-      lo := least(floor(coalesce(defo,0)*0.5), rem);
+      prot := coalesce(public._wow_protected(f.target), 0);
+      sg := floor(coalesce(defg,0) * (1 - prot));
+      sw := floor(coalesce(defw,0) * (1 - prot));
+      so := floor(coalesce(defo,0) * (1 - prot));
+      lg := least(floor(coalesce(sg,0)*0.5), cargo); rem := cargo - lg;
+      lw := least(floor(coalesce(sw,0)*0.5), rem); rem := rem - lw;
+      lo := least(floor(coalesce(so,0)*0.5), rem);
       if lg > 0 or lw > 0 or lo > 0 then
         update wow_users set gold = gold - lg, wood = wood - lw, ore = ore - lo where id = f.target;
         vloot := jsonb_build_object('gold',lg,'wood',lw,'ore',lo);
