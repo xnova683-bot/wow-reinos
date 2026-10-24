@@ -951,56 +951,31 @@ const Game = {
   battleSummary(b){
     if(!b) return "";
     try{
-    const K = ["soldado","arquero","jinete","mago","paladin","dragon"];
-    const em = k => (TRP[k] || {}).e || "⚔️";
-    const nm = k => (TRP[k] || {}).n || k;
-    const num = (o, k) => Number(o && o[k]) || 0;
-    const nR = (b.rounds || []).length;
-    const has = o => o && Object.keys(o).length;
-    const merge = (x, y) => { const o = {}; K.forEach(k => { const v = num(x, k) + num(y, k); if (v) o[k] = v; }); return o; };
-    const as = has(b.a_start) ? b.a_start : merge(b.a_left, b.a_loss);
-    const ds = has(b.d_start) ? b.d_start : merge(b.d_left, b.d_loss);
-    const al = b.a_left || {}, dl = b.d_left || {}, ax = b.a_loss || {}, dx = b.d_loss || {};
-    const sum = o => K.reduce((s, k) => s + (Number(o[k]) || 0), 0);
-    const totA = sum(as), totD = sum(ds);
-    const win = b.winner === "attacker";
-    const rout = b.rout ? (b.rout === "both" ? "rompieron filas ambos" : "huyó " + (b.rout === "attacker" ? "el atacante" : "el defensor"))
-      : (nR >= 20 ? "se agotó el tiempo" : "sin desbandada");
-    const cell = (q0, q1, qL) => `<b>${un(q0)}</b> → <span class="btlQ">${un(q1)}</span>` +
-      (qL > 0 ? ` <span class="btlL">-${un(qL)}</span>` : "");
-    let keys2 = K.slice();
-    if((as&&as.rey)|| (ds&&ds.rey) || (al&&al.rey) || (dl&&dl.rey)) keys2.push('rey');
-    const emr = k=> k==='rey' ? '\ud83d\udc51' : ((TRP[k]||{}).e||'\u2694\ufe0f');
-    const nmr = k=> k==='rey' ? 'Rey' : ((TRP[k]||{}).n||k);
-    const rows = keys2.filter(k=> k==='rey' ? ((as&&as.rey)||(ds&&ds.rey)||(al&&al.rey)||(dl&&dl.rey)) : ((Number((as&&as[k])||0))+(Number((ds&&ds[k])||0)))>0).map(k=>
-      `<tr><td class="btlT">${emr(k)} ${nmr(k)}</td>` +
-      `<td>${cell(num(as, k), num(al, k), num(ax, k))}</td>` +
-      `<td>${cell(num(ds, k), num(dl, k), num(dx, k))}</td></tr>`).join("");
-    const rrows = (b.rounds || []).map(x =>
-      `<div class="rnd"><span class="rndR">Ronda ${x.r}</span>` +
-      `<span>⚔️ -${un(x.aLoss)} · 🛡️ -${un(x.dLoss)}</span>` +
-      `<span>quedan ⚔️ ${un(x.aLeft)} / 🛡️ ${un(x.dLeft)}</span>` +
-      `<span>moral ${x.aMor} / ${x.dMor}</span></div>`).join("");
-    const ab = Number(b.a_bonus || 0), db = Number(b.d_bonus || 0);
-    const bon = (ab > 0 || db > 0)
-      ? `<div style="color:var(--green);font-size:13px;margin:6px 0">💃 Bonificación de tropas: ⚔️ +${dec(ab)}/tropa · 🛡️ +${dec(db)}/tropa</div>`
-      : "";
-    return `<div class="btl ${win ? "btlWin" : "btlLose"}">
-      <div class="btlHead">${win ? "🏆 Victoria del atacante" : "🛡️ El defensor resiste"} · ${nR} ronda${nR === 1 ? "" : "s"} · ${rout}</div>${bon}
-      <div class="btlVs">
-        <div class="btlS atk"><span class="btlLbl">⚔️ Atacante</span><span class="btlN">${un(totA)}</span><span class="btlD2">tropas iniciales</span></div>
-        <div class="btlVor">VS</div>
-        <div class="btlS def"><span class="btlLbl">🛡️ Defensor</span><span class="btlN">${un(totD)}</span><span class="btlD2">tropas iniciales</span></div>
-      </div>
-      <table class="btlTbl">
-        <tr><th>Tropa</th><th>⚔️ Atacante</th><th>🛡️ Defensor</th></tr>
-        ${rows || '<tr><td colspan="3">Sin tropas</td></tr>'}
-        <tr class="btlTot"><td class="btlT">Total</td><td><b>${un(totA)}</b> → ${un(sum(al))}</td><td><b>${un(totD)}</b> → ${un(sum(dl))}</td></tr>
-      </table>
-      <div class="btlFoot">Moral final · ⚔️ <b>${un(b.a_morale)}</b> / 🛡️ <b>${un(b.d_morale)}</b></div>
-      ${rrows ? `<details class="btlD"><summary>Ver rondas (${nR})</summary>${rrows}</details>` : ""}
-    </div>`;
-  }, }catch(e){ return "<div class=\"btl\"><div class=\"btlHead\">Batalla</div><div>Resumen no disponible.</div></div>"; }
+      const K=["soldado","arquero","jinete","mago","paladin","dragon"];
+      const em=k=>k==='rey'?'👑':((TRP[k]||{}).e||'⚔️');
+      const nm=k=>k==='rey'?'Rey':((TRP[k]||{}).n||k);
+      const num=(o,k)=> (o&&o[k]!==undefined&&o[k]!==null)?Number(o[k]):0;
+      const nR=(b.rounds||[]).length;
+      const as=b.a_start||b.aStart||{}, ds=b.d_start||b.dStart||{};
+      const al=b.a_left||b.aLeft||{}, dl=b.d_left||b.dLeft||{};
+      let keys2=K.slice();
+      if(num(as,'rey')||num(ds,'rey')||num(al,'rey')||num(dl,'rey')) keys2.push('rey');
+      const sum=o=>K.reduce((s2,k)=>s2+num(o,k),0)+num(o,'rey');
+      const totA=sum(as), totD=sum(ds);
+      const win=b.winner==='attacker';
+      const rout=b.rout?(b.rout==='both'?'rompieron filas ambos':'huyó '+(b.rout==='attacker'?'el atacante':'el defensor')):(nR>=20?'se agotó el tiempo':'sin desbandada');
+      const rows=keys2.filter(k=>k==='rey'?(num(as,k)+num(ds,k))>0:(num(as,k)+num(ds,k))>0).map(k=>{
+        const c0=num(as,k),c1=num(al,k),cL=Math.max(0,c0-c1);
+        const d0=num(ds,k),d1=num(dl,k),dL=Math.max(0,d0-d1);
+        return '<tr><td class="btlT">'+em(k)+' '+nm(k)+'</td><td><b>'+un(c0)+'</b> → <span class="btlQ">'+un(c1)+'</span>'+(cL>0?' <span class="btlL">-'+un(cL)+'</span>':'')+'</td><td><b>'+un(d0)+'</b> → <span class="btlQ">'+un(d1)+'</span>'+(dL>0?' <span class="btlL">-'+un(dL)+'</span>':'')+'</td></tr>';
+      }).join('');
+      const rrows=(b.rounds||[]).map(x=>'<div class="rnd"><span class="rndR">Ronda '+x.r+'</span><span>⚔️ -'+un(x.aLoss)+' · 🛡️ -'+un(x.dLoss)+'</span><span>quedan ⚔️ '+un(x.aLeft)+' / 🛡️ '+un(x.dLeft)+'</span><span>moral '+x.aMor+' / '+x.dMor+'</span></div>').join('');
+      const ab=Number(b.a_bonus||0), db=Number(b.d_bonus||0);
+      const bon=(ab>0||db>0)?'<div style="color:var(--green);font-size:13px;margin:6px 0">Bonificación: ⚔️ +'+dec(ab)+'/tropa · 🛡️ +'+dec(db)+'/tropa</div>':'';
+      return '<div class="btl '+(win?'btlWin':'btlLose')+'"><div class="btlHead">'+(win?'🏆 Victoria del atacante':'🛡️ El defensor resiste')+' · '+nR+' ronda'+(nR===1?'':'s')+' · '+rout+'</div>'+bon+'<div class="btlVs"><div class="btlS atk"><span class="btlLbl">⚔️ Atacante</span><span class="btlN">'+un(totA)+'</span><span class="btlD2">tropas iniciales</span></div><div class="btlVor">VS</div><div class="btlS def"><span class="btlLbl">🛡️ Defensor</span><span class="btlN">'+un(totD)+'</span><span class="btlD2">tropas iniciales</span></div></div><table class="btlTbl"><tr><th>Tropa</th><th>⚔️ Atacante</th><th>🛡️ Defensor</th></tr>'+(rows||'<tr><td colspan="3">Sin tropas</td></tr>')+'<tr class="btlTot"><td class="btlT">Total</td><td><b>'+un(totA)+'</b> → '+un(sum(al))+'</td><td><b>'+un(totD)+'</b> → '+un(sum(dl))+'</td></tr></table><div class="btlFoot">Moral final · ⚔️ <b>'+un(b.a_morale)+'</b> / 🛡️ <b>'+un(b.d_morale)+'</b></div>'+(rrows?'<details class="btlD"><summary>Ver rondas ('+nR+')</summary>'+rrows+'</details>':'')+'</div>';
+    }catch(e){ return '<div class="btl"><div class="btlHead">Batalla</div></div>'; }
+  },
+
   async loadMil(){
     if(!this.me) return;
     try{
