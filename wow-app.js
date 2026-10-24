@@ -1024,15 +1024,18 @@ const Game = {
         const isSpy = f.kind === "spy";
         const isRein = f.kind === "throne_rein";
         const isClaim = f.kind === "throne_claim";
+        const isGift = f.kind === "gift";
         const outbound = f.state === "outbound";
-        const emoji = isSpy ? "🔍" : isRein ? "🛡️" : isClaim ? "💰" : (outbound ? (inc ? "🛡️" : "⚔️") : "🏠");
+        const emoji = isSpy ? "🔍" : isRein ? "🛡️" : isClaim ? "💰" : isGift ? "🎁" : (outbound ? (inc ? "🛡️" : "⚔️") : "🏠");
         const lab = isSpy ? "espía en camino"
           : isRein ? (outbound ? "reforzando " + esc(f.who) : "volviendo a casa")
           : isClaim ? (outbound ? "a por el tesoro de " + esc(f.who) : "con el tesoro a casa")
+          : isGift ? (outbound ? (inc ? "recibiendo recursos de " + esc(f.who) : "enviando recursos a " + esc(f.who)) : (inc ? "volviendo tras recibir recursos" : "regresando tras enviar recursos"))
           : outbound
             ? (inc ? "en camino a atacarte" : "atacando a " + esc(f.who))
             : (inc ? "regresando tras atacarte" : "volviendo a casa");
         const troops = isSpy ? "Misión de espionaje"
+          : isGift ? (outbound ? "Recursos en camino" : "Caravana vacía")
           : ((inc && outbound) ? "Tropas enemigas en camino" : this.troopStr(f.troops));
         const loot = (f.loot && ((f.loot.gold||0)+(f.loot.wood||0)+(f.loot.ore||0) > 0))
           ? ` · botín 💰${un(f.loot.gold)} 🪵${un(f.loot.wood)} ⛏️${un(f.loot.ore)}` : "";
@@ -1059,6 +1062,14 @@ const Game = {
         }else if(r.dir === "in"){
           cls = r.win ? "lose" : "win";
           title = `🛡️ <b>${esc(r.who)}</b> te atacó — <b style="color:var(--${r.win ? "bad" : "green"})">${r.win ? "Perdiste" : "¡Resististe!"}</b>`;
+        }else if(r.dir === "gift"){
+          cls = "win";
+          title = `🎁 Enviaste recursos a <b>${esc(r.who)}</b>`;
+          det = "Los recursos ya han llegado. ";
+        }else if(r.dir === "gift_in"){
+          cls = "win";
+          title = `🎁 <b>${esc(r.who)}</b> te ha enviado recursos`;
+          det = "Los recursos se han añadido a tu almacén. ";
         }else if(r.dir === "spy"){
           cls = r.success ? "win" : "lose";
           title = r.success
@@ -1160,6 +1171,9 @@ const Game = {
       modalClose();
       toast("⚔️ Ataque enviado. Llegará en " + tfmt(res.travel) + ".");
       await this.refresh();
+      try{ await this.loadMil(); }catch(_){}
+      const mt = document.querySelector('.gameTabs [data-tab="mil"]');
+      if(mt){ mt.click(); }else{ this.tab = "mil"; if(typeof this.showTab === "function") this.showTab("mil"); }
     }catch(e){ toast(shortMsg(e), true); }
   },
 
@@ -3374,15 +3388,17 @@ Game.loadPalace = async function(){
   const el = document.getElementById("tabPalace"); if(!el) return;
   const first = !this._palSig;
   if(first) el.innerHTML = '<p class="empty">Cargando Palacio...</p>';
-  let d;
+  let d, king=null;
   try{ d = await sbRpc("wow_hero_info", { p_token: this.me.token }); }
   catch(e){ if(first) el.innerHTML = '<p class="empty">'+esc(shortMsg(e))+'</p>'; return; }
-  const sig = JSON.stringify(d);
+  try{ king = await sbRpc("wow_king_info", { p_token: this.me.token }); }catch(_){}
+  const sig = JSON.stringify(d)+JSON.stringify(king);
   if(sig === this._palSig) return;
   const ae = document.activeElement;
   if(!first && ae && ae.id === "palSearch" && el.contains(ae)) return;
   this._palSig = sig;
   this._pal = d;
+  this._king = king;
   const h = d.hero||{}, eq = d.eq||{}, bonus = d.bonus||{}, inv = d.inv||[], shop = d.shop||[];
   const kingImg = (this.me && this.me.faction === "horda") ? "img/rey_horda.jpg" : "img/rey_alianza.jpg";
   const eqIds = new Set(PAL_SLOTS.map(sl => Number(eq[sl])).filter(Boolean));
@@ -3431,12 +3447,21 @@ Game.loadPalace = async function(){
   });
   if(!items.length) cards = '<div class="empty" style="grid-column:1/-1">Sin objetos. Compra equipo en la Herrería.</div>';
 
+  let khtml = "";
+  if(king){
+    const pct = king.xp_next ? Math.min(100, Math.max(0, (king.xp / king.xp_next) * 100)) : 0;
+    khtml = '<div class="secTitle" style="margin-top:12px">👑 Rey del Reino</div>' +
+      '<div class="kingCard"><div class="kingRow"><div class="kingIcon">👑</div><div class="kingMain"><div class="kingName">'+esc(king.title)+' <b>'+esc(king.name)+'</b> · Nv.'+king.level+'</div>' +
+      '<div class="kingBar"><div class="kingFill" style="width:'+pct+'%"></div></div><div class="kingMeta">XP: '+un(king.xp)+' / '+un(king.xp_next)+' · ATK '+un(king.atk)+' · HP '+un(king.hp)+' · Bonus ejército +'+king.bonus_pct+'%</div></div></div>' +
+      '<div class="kingStats"><div>⚔️ Victorias trono: <b>'+un(king.throne_wins)+'</b></div><div>🛡️ Defensas: <b>'+un(king.throne_defends)+'</b></div><div>💀 Derrotas trono: <b>'+un(king.throne_losses)+'</b></div></div></div>';
+  }
+
   const paper =
     '<div class="palTop">' +
       '<div class="palKing"><img class="pkImg" src="'+kingImg+'" alt="Rey"><div class="pkOverlay">'+slotsHtml+'<div class="pkInfo">' +
         '<div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
         '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div></div></div>' +
-    '</div>' +
+    '</div>' + khtml +
     '<div class="palInvHead"><div class="secTitle">🎒 Inventario <span class="hint">('+items.length+' tipos)</span></div>' +
       '<input id="palSearch" class="palSearch" type="search" placeholder="Buscar objeto…" autocomplete="off">' +
       '<button class="btn sm hidden" id="palBest">⬆️ Equipar el mejor</button></div>' +

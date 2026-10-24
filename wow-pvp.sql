@@ -339,6 +339,7 @@ end $$;
 revoke all on function public._wow_sim(jsonb, jsonb, integer, bigint, numeric, numeric, numeric, numeric) from public, anon, authenticated;
 
 -- ---------- resolucion global de flotas ----------
+-- ---------- resolucion global de flotas ----------
 create or replace function public._wow_resolve()
 returns void language plpgsql security definer set search_path to 'public' as $$
 declare
@@ -350,18 +351,31 @@ declare
   att_wins boolean; wall integer; ret integer;
   a_forge int; a_fort int; d_forge int; d_fort int;
   who text; whoatt text;
-  prot numeric; sg numeric; sw numeric; so numeric;
   hab jsonb; hdb jsonb; a_bon numeric; d_bon numeric;
 begin
   for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
-
-    -- ===== ejercito contra un trono/aldea: la accion ocurre al llegar =====
+    if f.kind = 'gift' then
+      select * into zt from wow_users where id = f.target;
+      if zt.id is not null then
+        perform _wow_tick(f.target);
+        update wow_users set gold = least(gold + coalesce((f.loot->>'gold')::numeric,0), _wow_cap(f.target)),
+                             wood = least(wood + coalesce((f.loot->>'wood')::numeric,0), _wow_cap(f.target)),
+                             ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.target))
+          where id = f.target;
+        insert into wow_reports(owner, kind, data, created)
+          values (f.target, 'gift_in', jsonb_build_object('dir','gift_in',
+            'who',(select name from wow_users where id=f.attacker),
+            'gold',coalesce((f.loot->>'gold')::numeric,0),'wood',coalesce((f.loot->>'wood')::numeric,0),
+            'ore',coalesce((f.loot->>'ore')::numeric,0),'created',ms), ms);
+      end if;
+      ret := _wow_travel((select pos from wow_users where id=f.target),(select pos from wow_users where id=f.attacker));
+      update wow_fleets set state='returning', troops='{}'::jsonb, loot='{}'::jsonb, arrive_ms = ms + ret*1000 where id = f.id;
+      continue;
+    end if;
     if f.kind in ('throne_atk','throne_rein','throne_claim') then
       perform _wow_throne_land(f.id);
       continue;
     end if;
-
-    -- ===== mision de espionaje =====
     if f.kind = 'spy' then
       select * into zt from wow_users where id = f.target;
       if zt.id is null then
@@ -370,7 +384,7 @@ begin
         delete from wow_fleets where id = f.id;
         continue;
       end if;
-      zt := _wow_tick(f.target);
+      perform _wow_tick(f.target);
       if random() >= least(0.6, (select coalesce(max(level),0) from wow_buildings where owner_id=f.target and bkey='muralla') * 0.08) then
         insert into wow_reports(owner, kind, data, created)
           values (f.attacker, 'spy', jsonb_build_object('dir','spy','who',zt.name,'success',true,
@@ -393,7 +407,6 @@ begin
       continue;
     end if;
 
-    -- ===== batalla por rondas =====
     perform _wow_tick(f.attacker);
     zt := _wow_tick(f.target);
     djson := '{}'::jsonb;
@@ -414,30 +427,23 @@ begin
                     a_bon, d_bon, null, null, coalesce((hab->>'atk')::numeric,0), coalesce((hdb->>'def')::numeric,0));
     att_wins := (sim->>'winner') = 'attacker';
 
-    -- supervivientes del atacante (sin ceros)
     surv := '{}'::jsonb;
     for z in select key, value from jsonb_each_text(sim->'a_left') loop
       if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
     end loop;
 
-    -- defensa restante
     for z in select key, value from jsonb_each_text(sim->'d_left') loop
       update wow_troops set qty = (z.value)::int where owner_id = f.target and tkey = z.key;
     end loop;
     delete from wow_troops where owner_id = f.target and qty <= 0;
 
-    -- botin si el atacante gana
     vloot := '{}'::jsonb;
     if att_wins then
       select coalesce(sum((x.v)::int * _wow_cargo(x.k)),0) into cargo from jsonb_each_text(surv) x(k,v);
       select gold, wood, ore into defg, defw, defo from wow_users where id = f.target;
-      prot := coalesce(public._wow_protected(f.target), 0);
-      sg := floor(coalesce(defg,0) * (1 - prot));
-      sw := floor(coalesce(defw,0) * (1 - prot));
-      so := floor(coalesce(defo,0) * (1 - prot));
-      lg := least(floor(coalesce(sg,0)*0.5), cargo); rem := cargo - lg;
-      lw := least(floor(coalesce(sw,0)*0.5), rem); rem := rem - lw;
-      lo := least(floor(coalesce(so,0)*0.5), rem);
+      lg := least(floor(coalesce(defg,0)*0.5), cargo); rem := cargo - lg;
+      lw := least(floor(coalesce(defw,0)*0.5), rem); rem := rem - lw;
+      lo := least(floor(coalesce(defo,0)*0.5), rem);
       if lg > 0 or lw > 0 or lo > 0 then
         update wow_users set gold = gold - lg, wood = wood - lw, ore = ore - lo where id = f.target;
         vloot := jsonb_build_object('gold',lg,'wood',lw,'ore',lo);
@@ -452,20 +458,22 @@ begin
       (f.target,'in',   jsonb_build_object('dir','in','who',whoatt,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms);
 
     ret := _wow_travel((select pos from wow_users where id=f.target),(select pos from wow_users where id=f.attacker));
-    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
+    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000 where id = f.id;
   end loop;
 
-  -- ---- regreso a casa ----
   for f in select * from wow_fleets where state='returning' and arrive_ms <= ms for update loop
+    if f.kind = 'gift' then
+      delete from wow_fleets where id = f.id;
+      continue;
+    end if;
     perform _wow_tick(f.attacker);
     for z in select key, value from jsonb_each_text(f.troops) loop
       insert into wow_troops(owner_id, tkey, qty) values (f.attacker, z.key, (z.value)::int)
         on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
     end loop;
-    update wow_users set
-        gold = least(gold + coalesce((f.loot->>'gold')::numeric,0), _wow_cap(f.attacker)),
-        wood = least(wood + coalesce((f.loot->>'wood')::numeric,0), _wow_cap(f.attacker)),
-        ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.attacker))
+    update wow_users set gold = least(gold + coalesce((f.loot->>'gold')::numeric,0), _wow_cap(f.attacker)),
+                         wood = least(wood + coalesce((f.loot->>'wood')::numeric,0), _wow_cap(f.attacker)),
+                         ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.attacker))
       where id = f.attacker;
     insert into wow_reports(owner, kind, data, created)
       values (f.attacker, 'return', jsonb_build_object('dir','return',
@@ -476,7 +484,7 @@ begin
 end $$;
 revoke all on function public._wow_resolve() from public, anon, authenticated;
 
--- ---------- enviar ataque ----------
+
 create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb; protect numeric;
