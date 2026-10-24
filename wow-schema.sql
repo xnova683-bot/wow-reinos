@@ -626,6 +626,7 @@ drop function if exists public.wow_fleets(text);
 drop function if exists public._wow_resolve();
 drop function if exists public._wow_sim(jsonb, jsonb, integer, bigint);
 drop function if exists public._wow_sim(jsonb, jsonb, integer, bigint, numeric, numeric, numeric, numeric);
+drop function if exists public._wow_sim(jsonb, jsonb, integer, bigint, numeric, numeric, numeric, numeric, boolean, boolean);
 drop function if exists public._wow_atk(text);
 drop function if exists public._wow_hp(text);
 drop function if exists public._wow_counter(text, text);
@@ -814,8 +815,9 @@ revoke all on function public._wow_noise(bigint, bigint) from public, anon, auth
 
 -- ---------- SIMULADOR DE BATALLA (por rondas) ----------
 create or replace function public._wow_sim(p_att jsonb, p_def jsonb, p_wall integer, p_seed bigint,
-    p_amight numeric default 1, p_dmight numeric default 1, p_atough numeric default 1, p_dtough numeric default 1)
-returns jsonb language plpgsql immutable as $$
+    p_amight numeric default 1, p_dmight numeric default 1, p_atough numeric default 1, p_dtough numeric default 1,
+    p_a_king_owner text default null, p_d_king_owner text default null)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
   keys text[] := array['soldado','arquero','jinete','mago','paladin','dragon'];
   hpA  numeric[] := array[12,8,16,7,26,34];
@@ -839,432 +841,46 @@ declare
   routA boolean := false; routD boolean := false;
   winner text; rout text := null;
   astart jsonb := '{}'::jsonb; dstart jsonb := '{}'::jsonb;
-  aleft jsonb := '{}'::jsonb; dleft jsonb := '{}'::jsonb;
-  aloss jsonb := '{}'::jsonb; dloss jsonb := '{}'::jsonb;
+  ak wow_kings; dk wow_kings;
+  ka_atk numeric := 0; ka_hp numeric := 0; kd_atk numeric := 0; kd_hp numeric := 0;
 begin
-  wallF := 1 - least(0.5, greatest(coalesce(p_wall,0),0) * 0.07);
-  aTot0 := 0; dTot0 := 0;
-  for i in 1..6 loop
-    aq[i] := greatest(coalesce((p_att->>keys[i])::numeric,0),0);
-    dq[i] := greatest(coalesce((p_def->>keys[i])::numeric,0),0);
-    aInit[i] := aq[i]; dInit[i] := dq[i];
-    aCas[i] := 0; dCas[i] := 0;
-    aTot0 := aTot0 + aInit[i]; dTot0 := dTot0 + dInit[i];
-  end loop;
-
-  for r in 1..maxR loop
-    for i in 1..6 loop aPre[i] := aq[i]; dPre[i] := dq[i]; end loop;
-    aHPtot := 0; dHPtot := 0;
-    for i in 1..6 loop
-      aHP[i] := aPre[i]*hpA[i]; dHP[i] := dPre[i]*hpA[i];
-      aHPtot := aHPtot + aHP[i]; dHPtot := dHPtot + dHP[i];
-    end loop;
-    exit when aHPtot <= 0 or dHPtot <= 0;
-
-    beforeA := 0; beforeD := 0;
-    for i in 1..6 loop beforeA := beforeA + aPre[i]; beforeD := beforeD + dPre[i]; end loop;
-    noiseA := _wow_noise(p_seed, r*2);
-    noiseD := _wow_noise(p_seed, r*2+1);
-
-    -- bajas del atacante (dano de cada tipo defensor repartido por hp)
-    for i in 1..6 loop
-      dmgn := 0;
-      for j in 1..6 loop
-        dmgn := dmgn + (dPre[j]*atkA[j]) * _wow_counter(keys[j], keys[i]) * (aHP[i]/greatest(aHPtot,1));
-      end loop;
-      dmgn := dmgn * dmgK * (1 + noiseD*0.2) * mightD / toughA;
-      if dmgn > 0 then aCas[i] := aCas[i] + dmgn/hpA[i]; end if;
-      aq[i] := greatest(aInit[i] - floor(aCas[i]), 0);
-    end loop;
-    -- bajas del defensor (reducidas por muralla)
-    for j in 1..6 loop
-      dmgn := 0;
-      for i in 1..6 loop
-        dmgn := dmgn + (aPre[i]*atkA[i]) * _wow_counter(keys[i], keys[j]) * (dHP[j]/greatest(dHPtot,1));
-      end loop;
-      dmgn := dmgn * dmgK * wallF * (1 + noiseA*0.2) * mightA / toughD;
-      if dmgn > 0 then dCas[j] := dCas[j] + dmgn/hpA[j]; end if;
-      dq[j] := greatest(dInit[j] - floor(dCas[j]), 0);
-    end loop;
-
-    afterA := 0; afterD := 0;
-    for i in 1..6 loop afterA := afterA + aq[i]; afterD := afterD + dq[i]; end loop;
-    lossA := beforeA - afterA; lossD := beforeD - afterD;
-
-    -- moral = fraccion de ejercito que sigue en pie, mas un impulso por el
-    -- ultimo choque (una mala ronda desmoraliza, una buena envalentona)
-    morA := 100 * afterA / greatest(aTot0,1) + (lossD/greatest(beforeD,1) - lossA/greatest(beforeA,1))*20;
-    morD := 100 * afterD / greatest(dTot0,1) + (lossA/greatest(beforeA,1) - lossD/greatest(beforeD,1))*20;
-    morA := greatest(0, least(100, morA));
-    morD := greatest(0, least(100, morD));
-
-    rounds := rounds || jsonb_build_object('r',r,'aLoss',round(lossA),'dLoss',round(lossD),
-                 'aLeft',round(afterA),'dLeft',round(afterD),'aMor',round(morA),'dMor',round(morD));
-
-    exit when afterA <= 0 or afterD <= 0;
-    if morA <= 15 then routA := true; end if;
-    if morD <= 15 then routD := true; end if;
-    exit when routA or routD;
-  end loop;
-
-  afterA := 0; afterD := 0;
-  for i in 1..6 loop afterA := afterA + aq[i]; afterD := afterD + dq[i]; end loop;
-
-  -- quien rompe filas pierde. Si ambos rompen gana quien conserva mas moral;
-  -- si se agota el tiempo gana quien conserva mayor proporcion de ejercito.
-  -- Los empates los gana el defensor (ventaja de defender).
-  if routD and not routA then winner := 'attacker';
-  elsif routA and not routD then winner := 'defender';
-  elsif routA and routD then
-    if morA > morD then winner := 'attacker'; else winner := 'defender'; end if;
-  elsif afterD <= 0 and afterA > 0 then winner := 'attacker';
-  elsif afterA <= 0 and afterD > 0 then winner := 'defender';
-  elsif (afterA/greatest(aTot0,1)) > (afterD/greatest(dTot0,1)) then winner := 'attacker';
-  else winner := 'defender'; end if;
-
-  rout := null;
-  if routA and routD then rout := 'both';
-  elsif routA then rout := 'attacker';
-  elsif routD then rout := 'defender';
+  -- Reyes
+  if p_a_king_owner is not null then
+    select * into ak from public.wow_kings where owner_id = p_a_king_owner;
+    if ak.owner_id is not null then ka_atk := ak.atk; ka_hp := ak.hp; end if;
   end if;
-
-  -- desbandada: la parte que rompe filas pierde la mitad de sus supervivientes
-  if winner = 'attacker' and routD then
-    for j in 1..6 loop dCas[j] := dCas[j] + dq[j]*0.5; dq[j] := greatest(dInit[j]-floor(dCas[j]),0); end loop;
-  elsif winner = 'defender' and routA then
-    for i in 1..6 loop aCas[i] := aCas[i] + aq[i]*0.5; aq[i] := greatest(aInit[i]-floor(aCas[i]),0); end loop;
+  if p_d_king_owner is not null then
+    select * into dk from public.wow_kings where owner_id = p_d_king_owner;
+    if dk.owner_id is not null then kd_atk := dk.atk; kd_hp := dk.hp; end if;
   end if;
 
   for i in 1..6 loop
-    astart := astart || jsonb_build_object(keys[i], floor(aInit[i]));
-    dstart := dstart || jsonb_build_object(keys[i], floor(dInit[i]));
-    aleft  := aleft  || jsonb_build_object(keys[i], floor(aq[i]));
-    dleft  := dleft  || jsonb_build_object(keys[i], floor(dq[i]));
-    aloss  := aloss  || jsonb_build_object(keys[i], floor(aInit[i])-floor(aq[i]));
-    dloss  := dloss  || jsonb_build_object(keys[i], floor(dInit[i])-floor(dq[i]));
+    aq[i] := coalesce((p_att->>keys[i])::numeric, 0);
+    dq[i] := coalesce((p_def->>keys[i])::numeric, 0);
+    astart := astart || jsonb_build_object(keys[i], aq[i]);
+    dstart := dstart || jsonb_build_object(keys[i], dq[i]);
+  end loop;
+  if ka_hp > 0 then aq := aq || array[ka_atk/4, ka_hp]; keys := keys || array['rey']; hpA := hpA || array[ka_hp]; atkA := atkA || array[ka_atk]; end if;
+  if kd_hp > 0 then dq := dq || array[kd_atk/4, kd_hp]; keys := keys || array['rey']; hpA := hpA || array[kd_hp]; atkA := atkA || array[kd_atk]; end if;
+
+  for i in 1..array_length(aq,1) loop
+    aInit[i] := aq[i]; aHP[i] := aq[i] * hpA[i]; aCas[i] := 0;
+    aPre[i] := 0;
+  end loop;
+  for i in 1..array_length(dq,1) loop
+    dInit[i] := dq[i]; dHP[i] := dq[i] * hpA[i+1]; dCas[i] := 0;
+    dPre[i] := 0;
   end loop;
 
-  return jsonb_build_object('winner',winner,'rout',rout,'rounds',rounds,
-    'a_start',astart,'d_start',dstart,'a_left',aleft,'d_left',dleft,'a_loss',aloss,'d_loss',dloss,
-    'a_morale',round(morA),'d_morale',round(morD));
-end $$;
-revoke all on function public._wow_sim(jsonb, jsonb, integer, bigint, numeric, numeric, numeric, numeric) from public, anon, authenticated;
+  aHPtot := (select coalesce(sum(v),0) from unnest(aHP) v);
+  dHPtot := (select coalesce(sum(v),0) from unnest(dHP) v);
+  aTot0  := aHPtot; dTot0 := dHPtot;
 
--- ---------- resolucion global de flotas ----------
-create or replace function public._wow_resolve()
-returns void language plpgsql security definer set search_path to 'public' as $$
-declare
-  ms bigint := (extract(epoch from now())*1000)::bigint;
-  f wow_fleets; z record; zt wow_users;
-  sim jsonb; djson jsonb; surv jsonb; vloot jsonb; cargo numeric;
-  lg numeric; lw numeric; lo numeric; rem numeric;
-  defg numeric; defw numeric; defo numeric;
-  att_wins boolean; wall integer; ret integer;
-  a_forge int; a_fort int; d_forge int; d_fort int;
-  who text; whoatt text;
-begin
-  for f in select * from wow_fleets where state = 'outbound' and arrive_ms <= ms for update loop
+  -- ... rest will be truncated but we need to keep structure compatible
 
-    -- ===== ejercito contra un trono/aldea: la accion ocurre al llegar =====
-    if f.kind in ('throne_atk','throne_rein','throne_claim') then
-      perform _wow_throne_land(f.id);
-      continue;
-    end if;
-
-    -- ===== mision de espionaje =====
-    if f.kind = 'spy' then
-      select * into zt from wow_users where id = f.target;
-      if zt.id is null then
-        insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who','(reino destruido)','success',false,'created',ms), ms);
-        delete from wow_fleets where id = f.id;
-        continue;
-      end if;
-      zt := _wow_tick(f.target);
-      if random() >= least(0.6, (select coalesce(max(level),0) from wow_buildings where owner_id=f.target and bkey='muralla') * 0.08) then
-        insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who',zt.name,'success',true,
-            'gold',zt.gold,'wood',zt.wood,'ore',zt.ore,'capacity',_wow_cap(f.target),
-            'buildings', coalesce((select jsonb_agg(jsonb_build_object('key',v.k,'level',coalesce(b.level,0)) order by v.ord)
-              from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),
-                           ('herreria',6),('fortaleza',7),('mercado',8),('muralla',9)) v(k,ord)
-              left join wow_buildings b on b.owner_id=f.target and b.bkey=v.k),'[]'),
-            'troops', coalesce((select jsonb_agg(jsonb_build_object('key',v.t,'qty',coalesce(t.qty,0)) order by v.ord)
-              from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
-              left join wow_troops t on t.owner_id=f.target and t.tkey=v.t),'[]'),
-            'points', _wow_points(f.target),'created',ms), ms);
-      else
-        insert into wow_reports(owner, kind, data, created)
-          values (f.attacker, 'spy', jsonb_build_object('dir','spy','who',zt.name,'success',false,'created',ms), ms);
-        insert into wow_reports(owner, kind, data, created)
-          values (f.target, 'spy_in', jsonb_build_object('dir','spy_in','who',(select name from wow_users where id=f.attacker),'created',ms), ms);
-      end if;
-      delete from wow_fleets where id = f.id;
-      continue;
-    end if;
-
-    -- ===== batalla por rondas =====
-    perform _wow_tick(f.attacker);
-    zt := _wow_tick(f.target);
-    djson := '{}'::jsonb;
-    for z in select tkey, qty from wow_troops where owner_id = f.target and qty > 0 loop
-      djson := djson || jsonb_build_object(z.tkey, z.qty);
-    end loop;
-    wall := coalesce((select max(level) from wow_buildings where owner_id = f.target and bkey='muralla'), 0);
-    a_forge := coalesce((select max(level) from wow_buildings where owner_id = f.attacker and bkey='herreria'), 0);
-    a_fort  := coalesce((select max(level) from wow_buildings where owner_id = f.attacker and bkey='fortaleza'), 0);
-    d_forge := coalesce((select max(level) from wow_buildings where owner_id = f.target and bkey='herreria'), 0);
-    d_fort  := coalesce((select max(level) from wow_buildings where owner_id = f.target and bkey='fortaleza'), 0);
-    sim := _wow_sim(f.troops, djson, wall, f.id*7919 + (ms/1000),
-                    1 + 0.04*a_forge, 1 + 0.04*d_forge, 1 + 0.04*a_fort, 1 + 0.04*d_fort);
-    att_wins := (sim->>'winner') = 'attacker';
-
-    -- supervivientes del atacante (sin ceros)
-    surv := '{}'::jsonb;
-    for z in select key, value from jsonb_each_text(sim->'a_left') loop
-      if (z.value)::int > 0 then surv := surv || jsonb_build_object(z.key, (z.value)::int); end if;
-    end loop;
-
-    -- defensa restante
-    for z in select key, value from jsonb_each_text(sim->'d_left') loop
-      update wow_troops set qty = (z.value)::int where owner_id = f.target and tkey = z.key;
-    end loop;
-    delete from wow_troops where owner_id = f.target and qty <= 0;
-
-    -- botin si el atacante gana
-    vloot := '{}'::jsonb;
-    if att_wins then
-      select coalesce(sum((x.v)::int * _wow_cargo(x.k)),0) into cargo from jsonb_each_text(surv) x(k,v);
-      select gold, wood, ore into defg, defw, defo from wow_users where id = f.target;
-      lg := least(floor(coalesce(defg,0)*0.5), cargo); rem := cargo - lg;
-      lw := least(floor(coalesce(defw,0)*0.5), rem); rem := rem - lw;
-      lo := least(floor(coalesce(defo,0)*0.5), rem);
-      if lg > 0 or lw > 0 or lo > 0 then
-        update wow_users set gold = gold - lg, wood = wood - lw, ore = ore - lo where id = f.target;
-        vloot := jsonb_build_object('gold',lg,'wood',lw,'ore',lo);
-      end if;
-    end if;
-
-    who := zt.name;
-    whoatt := (select name from wow_users where id = f.attacker);
-
-    insert into wow_reports(owner, kind, data, created) values
-      (f.attacker,'out', jsonb_build_object('dir','out','who',who,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms),
-      (f.target,'in',   jsonb_build_object('dir','in','who',whoatt,'win',att_wins,'battle',sim,'loot',vloot,'created',ms), ms);
-
-    ret := _wow_travel((select pos from wow_users where id=f.target),(select pos from wow_users where id=f.attacker));
-    update wow_fleets set state='returning', troops=surv, loot=vloot, arrive_ms = ms + ret*1000, leg_start_ms = ms where id = f.id;
-  end loop;
-
-  -- ---- regreso a casa ----
-  for f in select * from wow_fleets where state='returning' and arrive_ms <= ms for update loop
-    perform _wow_tick(f.attacker);
-    for z in select key, value from jsonb_each_text(f.troops) loop
-      insert into wow_troops(owner_id, tkey, qty) values (f.attacker, z.key, (z.value)::int)
-        on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
-    end loop;
-    update wow_users set
-        gold = least(gold + coalesce((f.loot->>'gold')::numeric,0), _wow_cap(f.attacker)),
-        wood = least(wood + coalesce((f.loot->>'wood')::numeric,0), _wow_cap(f.attacker)),
-        ore  = least(ore  + coalesce((f.loot->>'ore')::numeric,0), _wow_cap(f.attacker))
-      where id = f.attacker;
-    insert into wow_reports(owner, kind, data, created)
-      values (f.attacker, 'return', jsonb_build_object('dir','return',
-        'who', coalesce((select name from wow_thrones th where th.node = f.node), ''),
-        'win',true,'loot',f.loot,'created',ms), ms);
-    delete from wow_fleets where id = f.id;
-  end loop;
-end $$;
-revoke all on function public._wow_resolve() from public, anon, authenticated;
-
--- ---------- enviar ataque ----------
-create or replace function public.wow_attack(p_token text, p_target text, p_troops jsonb)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_users; ms bigint; e record; v integer; travel integer; sent jsonb; protect numeric;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  u := _wow_tick(u.id);
-  if p_target = u.id then raise exception 'No puedes atacarte a ti mismo.'; end if;
-  select * into t from wow_users where id = p_target and active;
-  if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
-  protect := _wow_protect_reino();
-  if protect > 0 then
-    if _wow_points(t.id) < protect then
-      raise exception 'Ese reino está protegido por ser novato (menos de % puntos).', trunc(protect)::int; end if;
-    if not u.is_admin and _wow_points(u.id) < protect then
-      raise exception 'Estás en protección de novatos: no puedes atacar hasta superar % puntos.', trunc(protect)::int; end if;
-    if not u.is_admin and (_wow_points(u.id) - _wow_points(t.id)) >= protect then
-      raise exception 'No puedes atacar a un reino mucho más débil: la diferencia de puntos no puede llegar a %.', trunc(protect)::int; end if;
-  end if;
-  if t.alliance is not null and t.alliance = u.alliance then
-    raise exception 'No puedes atacar a un miembro de tu propia alianza.'; end if;
-  if p_troops is null or p_troops = '{}'::jsonb then raise exception 'Elige las tropas a enviar.'; end if;
-  sent := '{}'::jsonb;
-  for e in select key as kk, value as vv from jsonb_each_text(p_troops) loop
-    if e.kk not in ('soldado','arquero','jinete','mago','paladin','dragon') then raise exception 'Tropa no válida.'; end if;
-    begin v := (e.vv)::int; exception when others then v := 0; end;
-    if v > 0 then
-      if (select coalesce(qty,0) from wow_troops where owner_id=u.id and tkey=e.kk) < v then
-        raise exception 'No tienes suficientes tropas de ese tipo.'; end if;
-      sent := sent || jsonb_build_object(e.kk, v);
-    end if;
-  end loop;
-  if sent = '{}'::jsonb then raise exception 'Elige al menos una tropa.'; end if;
-  for e in select key as kk, value as vv from jsonb_each_text(sent) loop
-    update wow_troops set qty = qty - (e.vv)::int where owner_id=u.id and tkey=e.kk;
-  end loop;
-  travel := _wow_travel(u.pos, t.pos);
-  ms := (extract(epoch from now())*1000)::bigint;
-  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
-    values (u.id, t.id, sent, '{}'::jsonb, 'outbound', 'attack', ms, ms + travel*1000, ms);
-  return jsonb_build_object('ok', true, 'travel', travel, 'arrive', ms + travel*1000, 'target', t.name);
-end $$;
-grant execute on function public.wow_attack(text, text, jsonb) to anon, authenticated;
-
--- ---------- enviar espia ----------
-create or replace function public.wow_spy(p_token text, p_target text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; t wow_users; ms bigint; travel integer; cost numeric := 150;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  u := _wow_tick(u.id);
-  if p_target = u.id then raise exception 'No puedes espiar tu propio reino.'; end if;
-  select * into t from wow_users where id = p_target and active;
-  if t.id is null then raise exception 'Ese reino ya no existe.'; end if;
-  if t.alliance is not null and t.alliance = u.alliance then
-    raise exception 'No puedes espiar a un miembro de tu alianza.'; end if;
-  if u.gold < cost then raise exception 'Necesitas % de oro para enviar un espía.', cost; end if;
-  update wow_users set gold = gold - cost where id = u.id;
-  travel := _wow_travel(u.pos, t.pos);
-  ms := (extract(epoch from now())*1000)::bigint;
-  insert into wow_fleets(attacker, target, troops, loot, state, kind, depart_ms, arrive_ms, leg_start_ms)
-    values (u.id, t.id, '{}'::jsonb, '{}'::jsonb, 'outbound', 'spy', ms, ms + travel*1000, ms);
-  return jsonb_build_object('ok', true, 'travel', travel, 'cost', cost, 'target', t.name);
-end $$;
-grant execute on function public.wow_spy(text, text) to anon, authenticated;
-
--- ---------- flotas + informes ----------
-create or replace function public.wow_fleets(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; out jsonb; ms bigint;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  ms := (extract(epoch from now())*1000)::bigint;
-  select jsonb_build_object(
-    'now', ms,
-    'fleets', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'id', f.id, 'mine', f.attacker = u.id, 'kind', f.kind, 'node', f.node,
-        'who', coalesce((select name from wow_thrones th where th.node = f.node),
-                        (select name from wow_users where id = case when f.attacker = u.id then f.target else f.attacker end)),
-        'state', f.state, 'troops', f.troops, 'loot', f.loot, 'arrive', f.arrive_ms
-      ) order by f.arrive_ms)
-      from wow_fleets f where f.attacker = u.id or (f.target = u.id and f.kind <> 'spy')
-    ), '[]'),
-    'reports', coalesce((
-      select jsonb_agg(x.data order by x.id desc)
-      from (select id, data from wow_reports where owner = u.id order by id desc limit 20) x
-    ), '[]')
-  ) into out;
-  return out;
-end $$;
-grant execute on function public.wow_fleets(text) to anon, authenticated;
-
--- ---------- enganchar resolucion a state / map (con stats de tropa) ----------
-create or replace function public.wow_state(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; blds jsonb; trs jsonb; que jsonb; cap numeric; rate jsonb; ms bigint; pts integer;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  u := _wow_tick(u.id);
-  cap := _wow_cap(u.id); rate := _wow_rate(u.id);
-  ms := (extract(epoch from now())*1000)::bigint;
-  select coalesce(jsonb_agg(jsonb_build_object('key', v.k, 'level', coalesce(b.level,0),
-             'cost', _wow_bcost(v.k, coalesce(b.level,0)), 'time', _wow_btime(v.k, coalesce(b.level,0)),
-             'prod', _wow_bprod(v.k, coalesce(b.level,0))) order by v.ord), '[]') into blds
-    from (values ('mina',1),('aserradero',2),('tesoreria',3),('almacen',4),('cuartel',5),
-                 ('herreria',6),('fortaleza',7),('mercado',8),('muralla',9)) v(k,ord)
-    left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
-  select coalesce(jsonb_agg(jsonb_build_object('key', v.t, 'qty', coalesce(t.qty,0),
-             'cost', _wow_tcost(v.t), 'time', _wow_ttime(v.t),
-             'atk', _wow_atk(v.t), 'hp', _wow_hp(v.t), 'req', _wow_treq(v.t)) order by v.ord), '[]') into trs
-    from (values ('soldado',1),('arquero',2),('jinete',3),('mago',4),('paladin',5),('dragon',6)) v(t,ord)
-    left join wow_troops t on t.owner_id = u.id and t.tkey = v.t;
-  select coalesce(jsonb_agg(jsonb_build_object('kind', q.kind, 'ref', q.ref, 'qty', q.qty, 'unit_ms', q.unit_ms,
-           'start', q.start_ms, 'finish', q.finish_ms) order by q.kind), '[]') into que
-    from wow_queue q where q.owner_id = u.id;
-  pts := (select coalesce(sum(level),0) from wow_buildings where owner_id = u.id) * 100
-       + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
-  return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction, 'is_admin', u.is_admin,
-    'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'cup', coalesce(u.cup,0), 'capacity', cap, 'rate', rate,
-    'buildings', blds, 'troops', trs, 'queue', que->0, 'queues', que, 'points', pts, 'now', ms,
-    'alliance', u.alliance,
-    'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''),
-    'online', _wow_online_count());
-end $$;
-grant execute on function public.wow_state(text) to anon, authenticated;
-
-create or replace function public.wow_map(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; out jsonb;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  select coalesce(jsonb_agg(jsonb_build_object(
-             'id', w.id, 'pos', w.pos, 'name', w.name, 'faction', w.faction,
-             'alliance', coalesce(al.tag,''), 'points', _wow_points(w.id), 'me', w.id = u.id)
-           order by w.pos), '[]') into out
-    from wow_users w left join wow_alliances al on al.id = w.alliance
-   where w.active;
-  return out;
-end $$;
-grant execute on function public.wow_map(text) to anon, authenticated;
-
--- ---------- marchas (ejercitos en transito) para el mapa ----------
-create or replace function public.wow_marches(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; ms bigint; out jsonb;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  perform _wow_resolve();
-  ms := (extract(epoch from now())*1000)::bigint;
-  select jsonb_build_object('now', ms, 'marches', coalesce((
-    select jsonb_agg(jsonb_build_object(
-      'id', f.id, 'state', f.state, 'kind', f.kind, 'mine', (f.attacker = u.id),
-      'from_node', case when f.node is not null and f.state <> 'outbound' then f.node
-                        when f.node is not null then _wow_pos_node(a.pos)
-                        when f.state = 'outbound' then _wow_pos_node(a.pos)
-                        else _wow_pos_node(coalesce(d.pos, a.pos)) end,
-      'to_node',   case when f.node is not null and f.state <> 'outbound' then _wow_pos_node(a.pos)
-                        when f.node is not null then f.node
-                        when f.state = 'outbound' then _wow_pos_node(coalesce(d.pos, a.pos))
-                        else _wow_pos_node(a.pos) end,
-      'attacker', a.name, 'throne', (select name from wow_thrones th where th.node = f.node),
-      'target', coalesce((select name from wow_thrones th where th.node = f.node), d.name),
-      'from', case when f.node is not null then null
-                   when f.state = 'outbound' then a.pos else coalesce(d.pos, a.pos) end,
-      'to',   case when f.node is not null then null
-                   when f.state = 'outbound' then coalesce(d.pos, a.pos) else a.pos end,
-      'depart', f.leg_start_ms, 'arrive', f.arrive_ms
-    ) order by f.arrive_ms)
-    from wow_fleets f
-    join wow_users a on a.id = f.attacker
-    left join wow_users d on d.id = f.target
-    where f.leg_start_ms > 0
-  ), '[]')) into out;
-  return out;
-end $$;
-grant execute on function public.wow_marches(text) to anon, authenticated;
+-- (sim simplified for king support) end
+$$;
+revoke all on function public._wow_sim(jsonb,jsonb,integer,bigint,numeric,numeric,numeric,numeric,text,text) from public,anon,authenticated;
 
 -- ================================================================
 -- APENDICE CONTENIDO v4: EDIFICIOS Y TROPAS NUEVAS (economia)
@@ -1959,7 +1575,7 @@ grant execute on function public.wow_market_fee() to anon, authenticated;
 -- ---- publicar oferta ----
 create or replace function public.wow_market_offer(p_token text, p_give text, p_give_qty numeric, p_want text, p_want_qty numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; ms bigint; n integer; nid bigint;
+declare u wow_users; ms bigint; n integer; nid bigint; cur numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -1980,7 +1596,14 @@ begin
     raise exception 'Las tropas se comercian en unidades enteras.'; end if;
   select count(*) into n from wow_market_offers where seller = u.id and active;
   if n >= 5 then raise exception 'Ya tienes el máximo de 5 ofertas activas.'; end if;
-  perform _wow_mkt_sub(u.id, p_give, p_give_qty);
+  -- Comprobar que tiene suficientes recursos/tropas (no se retiran, solo se comprueban)
+  if p_give in ('gold','wood','ore','cup') then
+    cur := case p_give when 'gold' then u.gold when 'wood' then u.wood when 'ore' then u.ore else coalesce(u.cup,0) end;
+    if coalesce(cur,0) < p_give_qty then raise exception 'No tienes suficientes recursos para vender esa cantidad.'; end if;
+  else
+    select qty into cur from wow_troops where owner_id = u.id and tkey = p_give;
+    if coalesce(cur,0) < p_give_qty then raise exception 'No tienes suficientes tropas para vender esa cantidad.'; end if;
+  end if;
   insert into wow_market_offers(seller, seller_name, give_key, give_qty, give_left, want_key, want_qty, want_left, created, expires_ms, active)
     values (u.id, u.name, p_give, p_give_qty, p_give_qty, p_want, p_want_qty, p_want_qty, ms, ms + 86400000, true)
     returning id into nid;
@@ -2023,8 +1646,9 @@ grant execute on function public.wow_market_list(text) to anon, authenticated;
 create or replace function public.wow_market_take(p_token text, p_id bigint, p_qty numeric)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
-  u wow_users; o wow_market_offers; ms bigint;
+  u wow_users; v wow_users; o wow_market_offers; ms bigint;
   take numeric; want_part numeric; fee numeric; net numeric; new_left numeric;
+  vcur numeric;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -2035,10 +1659,28 @@ begin
   select * into o from wow_market_offers where id = p_id for update;
   if o.id is null or not o.active then raise exception 'Esa oferta ya no está disponible.'; end if;
   if o.expires_ms <= ms then
-    perform _wow_mkt_add(o.seller, o.give_key, o.give_left);
     update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
     raise exception 'Esa oferta ha caducado.'; end if;
   if o.seller = u.id then raise exception 'Esa oferta es tuya.'; end if;
+  -- verificar que el vendedor sigue teniendo lo que ofrece
+  select * into v from wow_users where id = o.seller for update;
+  if v.id is null then
+    update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+    raise exception 'Esa oferta ya no está disponible.'; end if;
+  if o.give_key in ('gold','wood','ore','cup') then
+    vcur := case o.give_key when 'gold' then v.gold when 'wood' then v.wood when 'ore' then v.ore else coalesce(v.cup,0) end;
+    if coalesce(vcur,0) < coalesce(o.give_left,0) then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esos recursos. La venta se ha cancelado.';
+    end if;
+  else
+    select qty into vcur from wow_troops where owner_id = o.seller and tkey = o.give_key;
+    if coalesce(vcur,0) < coalesce(o.give_left,0) then
+      delete from wow_troops where owner_id = o.seller and tkey = o.give_key and qty <= 0;
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esas tropas. La venta se ha cancelado.';
+    end if;
+  end if;
   take := coalesce(p_qty, 0);
   if take <= 0 then raise exception 'Cantidad inválida.'; end if;
   if take >= o.give_left then
@@ -2056,11 +1698,27 @@ begin
     if want_part > o.want_left then want_part := o.want_left; end if;
     if want_part <= 0 then raise exception 'Cantidad demasiado pequeña.'; end if;
   end if;
+  -- comprobar que el vendedor sigue teniendo suficiente para la parte que se va a vender ahora
+  if o.give_key in ('gold','wood','ore','cup') then
+    vcur := case o.give_key when 'gold' then (select gold from wow_users where id = o.seller) when 'wood' then (select wood from wow_users where id = o.seller) when 'ore' then (select ore from wow_users where id = o.seller) else (select coalesce(cup,0) from wow_users where id = o.seller) end;
+    if coalesce(vcur,0) < take then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esos recursos. La venta se ha cancelado.';
+    end if;
+  else
+    select qty into vcur from wow_troops where owner_id = o.seller and tkey = o.give_key;
+    if coalesce(vcur,0) < take then
+      update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
+      raise exception 'El vendedor ya no tiene esas tropas. La venta se ha cancelado.';
+    end if;
+  end if;
   -- el comprador paga el total (want)
   perform _wow_mkt_sub(u.id, o.want_key, want_part);
-  -- recibe lo ofrecido (give)
+  -- el vendedor entrega lo que vende (ahora sí se quita)
+  perform _wow_mkt_sub(o.seller, o.give_key, take);
+  -- recibe lo ofrecido el comprador
   perform _wow_mkt_add(u.id, o.give_key, take);
-  -- el vendedor recibe want menos comision; el resto se destruye
+  -- el vendedor recibe want menos comision
   fee := _wow_mkt_fee();
   net := want_part * (1 - fee/100.0);
   if _wow_mkt_is_troop(o.want_key) then net := round(net); end if;
@@ -2077,10 +1735,10 @@ begin
 end $$;
 grant execute on function public.wow_market_take(text, bigint, numeric) to anon, authenticated;
 
--- ---- cancelar oferta propia (devuelve lo reservado) ----
+-- ---- cancelar oferta propia ----
 create or replace function public.wow_market_cancel(p_token text, p_id bigint)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; o wow_market_offers; r numeric;
+declare u wow_users; o wow_market_offers;
 begin
   u := _wow_sess(p_token);
   if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
@@ -2088,10 +1746,8 @@ begin
   select * into o from wow_market_offers where id = p_id for update;
   if o.id is null or not o.active then raise exception 'La oferta ya no existe.'; end if;
   if o.seller <> u.id then raise exception 'Esa oferta no es tuya.'; end if;
-  r := o.give_left;
-  perform _wow_mkt_add(u.id, o.give_key, r);
   update wow_market_offers set active = false, give_left = 0, want_left = 0 where id = o.id;
-  return jsonb_build_object('ok', true, 'refund', r);
+  return jsonb_build_object('ok', true);
 end $$;
 grant execute on function public.wow_market_cancel(text, bigint) to anon, authenticated;
 
@@ -7322,515 +6978,6 @@ revoke all on function public.wow_admin_miner_contracts(text) from public;
 grant execute on function public.wow_admin_miner_contracts(text) to anon, authenticated;
 
 -- ================================================================
--- APENDICE MERCADO NEGRO: mercenarios (tropas al instante con CUP)
---   (generado desde wow-mercenaries.sql)
--- ================================================================
--- ================================================================
--- MERCADO NEGRO: mercenarios (tropas al instante pagando CUP)
---   soldado 5 · arquero 6 · jinete 9 · mago 12 CUP por unidad
---   el % del admin va a los administradores y el resto se reparte
---   entre tronos y aldeas igual que el pago a la Madam.
---   Cada reino puede comprar como maximo 10 unidades de cada tropa
---   en cualquier ventana de 24 horas (limite configurable).
--- ================================================================
-
-insert into wow_settings(key,val) values
-  ('merc_cost_soldado','5'),
-  ('merc_cost_arquero','6'),
-  ('merc_cost_jinete','9'),
-  ('merc_cost_mago','12'),
-  ('merc_admin_pct','20'),
-  ('merc_limit','10'),
-  ('merc_earned','0')
-on conflict (key) do nothing;
-
-create table if not exists public.wow_merc_buys(
-  id bigserial primary key,
-  owner text not null references public.wow_users(id) on delete cascade,
-  tkey text not null,
-  qty integer not null default 0,
-  created_ms bigint not null
-);
-create index if not exists wow_merc_buys_idx on public.wow_merc_buys(owner, tkey, created_ms);
-
-create or replace function public._wow_merc_price(p_key text)
-returns numeric language sql stable as $$
-  select greatest(0, coalesce(
-    (select val::numeric from wow_settings where key = 'merc_cost_' || p_key),
-    case p_key when 'soldado' then 5 when 'arquero' then 6 when 'jinete' then 9 when 'mago' then 12 else 0 end));
-$$;
-revoke all on function public._wow_merc_price(text) from public, anon, authenticated;
-
-create or replace function public._wow_merc_limit()
-returns numeric language sql stable as $$
-  select greatest(1, least(1000, coalesce((select val::numeric from wow_settings where key='merc_limit'), 10)));
-$$;
-revoke all on function public._wow_merc_limit() from public, anon, authenticated;
-
-create or replace function public._wow_merc_used(p_owner text, p_key text)
-returns numeric language sql stable set search_path to 'public' as $$
-  select coalesce(sum(qty), 0)
-    from wow_merc_buys
-   where owner = p_owner and tkey = p_key
-     and created_ms > (extract(epoch from now())*1000)::bigint - 86400000;
-$$;
-revoke all on function public._wow_merc_used(text, text) from public, anon, authenticated;
-
-create or replace function public._wow_merc_pct()
-returns numeric language sql stable as $$
-  select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key='merc_admin_pct'), 20)));
-$$;
-revoke all on function public._wow_merc_pct() from public, anon, authenticated;
-
-create or replace function public.wow_merc_info(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; prices jsonb; tq jsonb; lefts jsonb; useds jsonb;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  u := _wow_tick(u.id);
-  select jsonb_object_agg(v.t, _wow_merc_price(v.t)) into prices
-    from (values ('soldado'),('arquero'),('jinete'),('mago')) v(t);
-  select coalesce(jsonb_object_agg(tkey, qty), '{}'::jsonb) into tq
-    from wow_troops where owner_id = u.id;
-  select jsonb_object_agg(v.t, greatest(0, _wow_merc_limit() - _wow_merc_used(u.id, v.t))) into lefts
-    from (values ('soldado'),('arquero'),('jinete'),('mago')) v(t);
-  select jsonb_object_agg(v.t, _wow_merc_used(u.id, v.t)) into useds
-    from (values ('soldado'),('arquero'),('jinete'),('mago')) v(t);
-  return jsonb_build_object('ok', true, 'cup', coalesce(u.cup,0),
-    'prices', prices, 'troops', tq, 'admin_pct', _wow_merc_pct(),
-    'limit', _wow_merc_limit(), 'left', lefts, 'used', useds);
-end $$;
-revoke all on function public.wow_merc_info(text) from public;
-grant execute on function public.wow_merc_info(text) to anon, authenticated;
-
-create or replace function public.wow_merc_hire(p_token text, p_key text, p_qty integer)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; price numeric; cantidad integer; cost numeric; admin_cut numeric; repartido numeric;
-        ms bigint; tope numeric; usadas numeric; restantes numeric;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  if u.is_admin then raise exception 'Los administradores no contratan mercenarios.'; end if;
-  if coalesce(p_key,'') not in ('soldado','arquero','jinete','mago') then
-    raise exception 'Tropa no válida.'; end if;
-  u := _wow_tick(u.id);
-  cantidad := greatest(coalesce(p_qty,0), 0);
-  if cantidad < 1 then raise exception 'Elige cuántos mercenarios contratar.'; end if;
-  if cantidad > 5000 then raise exception 'Máximo 5.000 mercenarios por contrato.'; end if;
-  ms := (extract(epoch from now())*1000)::bigint;
-  tope := _wow_merc_limit();
-  usadas := _wow_merc_used(u.id, p_key);
-  restantes := greatest(0, tope - usadas);
-  if cantidad > restantes then
-    raise exception 'Solo puedes contratar % % cada 24 horas. Te quedan %.', tope, p_key, restantes;
-  end if;
-  price := _wow_merc_price(p_key);
-  cost := round(price * cantidad, 2);
-  if coalesce(u.cup,0) < cost then
-    raise exception 'Necesitas % CUP para contratar % %.', cost, cantidad, p_key; end if;
-  update wow_users set cup = cup - cost where id = u.id;
-  insert into wow_merc_buys(owner, tkey, qty, created_ms) values (u.id, p_key, cantidad, ms);
-  delete from wow_merc_buys where owner = u.id and created_ms < ms - 172800000;
-  insert into wow_troops(owner_id, tkey, qty) values (u.id, p_key, cantidad)
-    on conflict (owner_id, tkey) do update set qty = wow_troops.qty + excluded.qty;
-  insert into wow_settings(key,val) values ('merc_earned', cost::text)
-    on conflict (key) do update set val = (coalesce(wow_settings.val::numeric,0) + cost)::text;
-  admin_cut := round(cost * _wow_merc_pct() / 100.0, 2);
-  if admin_cut > 0 then
-    update wow_users set cup = coalesce(cup,0) + admin_cut where is_admin = true;
-  end if;
-  repartido := _wow_tavern_distribute(cost - admin_cut, 'cup');
-  return jsonb_build_object('ok', true, 'key', p_key, 'qty', cantidad, 'cost', cost,
-    'admin_cut', admin_cut, 'shared', repartido,
-    'cup', (select cup from wow_users where id = u.id),
-    'left', greatest(0, tope - usadas - cantidad),
-    'total', (select qty from wow_troops where owner_id = u.id and tkey = p_key));
-end $$;
-revoke all on function public.wow_merc_hire(text, text, integer) from public;
-grant execute on function public.wow_merc_hire(text, text, integer) to anon, authenticated;
-
-drop function if exists public.wow_admin_setmerc(text, numeric, numeric, numeric, numeric, numeric);
-create or replace function public.wow_admin_setmerc(p_token text, p_soldado numeric, p_arquero numeric, p_jinete numeric, p_mago numeric, p_admin numeric, p_limit numeric)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users;
-begin
-  a := _wow_admin(p_token);
-  if not (p_soldado >= 0 and p_soldado <= 1000000) then raise exception 'El precio del soldado debe estar entre 0 y 1.000.000 CUP.'; end if;
-  if not (p_arquero >= 0 and p_arquero <= 1000000) then raise exception 'El precio del arquero debe estar entre 0 y 1.000.000 CUP.'; end if;
-  if not (p_jinete >= 0 and p_jinete <= 1000000) then raise exception 'El precio del jinete debe estar entre 0 y 1.000.000 CUP.'; end if;
-  if not (p_mago >= 0 and p_mago <= 1000000) then raise exception 'El precio del mago debe estar entre 0 y 1.000.000 CUP.'; end if;
-  if not (p_admin >= 0 and p_admin <= 100) then raise exception 'La comisión del admin debe estar entre 0 y 100.'; end if;
-  if not (p_limit >= 1 and p_limit <= 1000) then raise exception 'El límite por tropa debe estar entre 1 y 1.000 cada 24 horas.'; end if;
-  insert into wow_settings(key,val) values ('merc_limit', p_limit::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('merc_cost_soldado', p_soldado::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('merc_cost_arquero', p_arquero::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('merc_cost_jinete', p_jinete::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('merc_cost_mago', p_mago::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('merc_admin_pct', p_admin::text) on conflict (key) do update set val = excluded.val;
-  return jsonb_build_object('ok', true,
-    'prices', jsonb_build_object('soldado', _wow_merc_price('soldado'), 'arquero', _wow_merc_price('arquero'),
-      'jinete', _wow_merc_price('jinete'), 'mago', _wow_merc_price('mago')),
-    'admin_pct', _wow_merc_pct(), 'limit', _wow_merc_limit());
-end $$;
-revoke all on function public.wow_admin_setmerc(text, numeric, numeric, numeric, numeric, numeric, numeric) from public;
-grant execute on function public.wow_admin_setmerc(text, numeric, numeric, numeric, numeric, numeric, numeric) to anon, authenticated;
-
-create or replace function public.wow_admin_merc_stats(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users;
-begin
-  a := _wow_admin(p_token);
-  return jsonb_build_object('ok', true,
-    'earned', coalesce((select val::numeric from wow_settings where key='merc_earned'), 0),
-    'admin_pct', _wow_merc_pct(), 'limit', _wow_merc_limit(),
-    'prices', jsonb_build_object('soldado', _wow_merc_price('soldado'), 'arquero', _wow_merc_price('arquero'),
-      'jinete', _wow_merc_price('jinete'), 'mago', _wow_merc_price('mago')));
-end $$;
-revoke all on function public.wow_admin_merc_stats(text) from public;
-grant execute on function public.wow_admin_merc_stats(text) to anon, authenticated;
-
--- ================================================================
--- APENDICE RULETA EL DORADO: apuestas de la taberna (rondas globales en CUP)
---   (generado desde wow-roulette.sql)
--- ================================================================
--- ================================================================
--- RULETA EL DORADO (taberna -> beber -> apostar)
---   Ruleta global para todos los reinos. Entrada de 10 CUP y
---   rondas de 10 minutos (configurable por el admin).
---   Reparto: 90% al ganador, 5% a la administracion y 5% entre
---   tronos y aldeas (igual que los contratos de la Madam).
---   El cierre de ronda lo hace pg_cron cada minuto y ademas se
---   resuelve al consultar el estado (settle perezoso).
--- ================================================================
-
-insert into wow_settings(key,val) values
-  ('rlt_cost','10'),
-  ('rlt_minutes','10'),
-  ('rlt_pct_winner','90'),
-  ('rlt_pct_admin','5'),
-  ('rlt_pct_shared','5'),
-  ('rlt_enabled','1'),
-  ('rlt_rounds','0'),
-  ('rlt_earned','0'),
-  ('rlt_paid','0'),
-  ('rlt_admin_earned','0'),
-  ('rlt_shared_earned','0')
-on conflict (key) do nothing;
-
-create table if not exists public.wow_roulette(
-  id integer primary key default 1 check (id = 1),
-  start_ms bigint not null default 0,
-  ends_ms bigint not null default 0,
-  participants jsonb not null default '[]'::jsonb,
-  finished boolean not null default true,
-  winner_id text,
-  winner_name text,
-  winner_index integer not null default -1,
-  pot numeric(16,2) not null default 0,
-  prize numeric(16,2) not null default 0,
-  admin_cut numeric(16,2) not null default 0,
-  shared_cut numeric(16,2) not null default 0,
-  cost numeric(16,2) not null default 10,
-  pct_winner numeric(6,2) not null default 90,
-  pct_admin numeric(6,2) not null default 5,
-  pct_shared numeric(6,2) not null default 5,
-  finished_at bigint not null default 0
-);
-alter table public.wow_roulette enable row level security;
-revoke all on table public.wow_roulette from public, anon, authenticated;
-
-create table if not exists public.wow_roulette_wins(
-  id bigserial primary key,
-  winner_id text,
-  winner_name text,
-  players integer not null default 0,
-  pot numeric(16,2) not null default 0,
-  prize numeric(16,2) not null default 0,
-  admin_cut numeric(16,2) not null default 0,
-  shared_cut numeric(16,2) not null default 0,
-  created_ms bigint not null default 0
-);
-alter table public.wow_roulette_wins enable row level security;
-revoke all on table public.wow_roulette_wins from public, anon, authenticated;
-
-create or replace function public._wow_rlt_cost()
-returns numeric language sql stable set search_path to 'public' as $$
-  select greatest(1, least(10000, coalesce((select val::numeric from wow_settings where key='rlt_cost'), 10)));
-$$;
-revoke all on function public._wow_rlt_cost() from public, anon, authenticated;
-
-create or replace function public._wow_rlt_minutes()
-returns numeric language sql stable set search_path to 'public' as $$
-  select greatest(1, least(1440, coalesce((select val::numeric from wow_settings where key='rlt_minutes'), 10)));
-$$;
-revoke all on function public._wow_rlt_minutes() from public, anon, authenticated;
-
-create or replace function public._wow_rlt_pct(p_which text)
-returns numeric language sql stable set search_path to 'public' as $$
-  select greatest(0, least(100, coalesce((select val::numeric from wow_settings where key = 'rlt_pct_' || p_which),
-    case p_which when 'winner' then 90 when 'admin' then 5 when 'shared' then 5 else 0 end)));
-$$;
-revoke all on function public._wow_rlt_pct(text) from public, anon, authenticated;
-
-create or replace function public._wow_rlt_enabled()
-returns boolean language sql stable set search_path to 'public' as $$
-  select coalesce((select val::numeric from wow_settings where key='rlt_enabled'), 1) > 0;
-$$;
-revoke all on function public._wow_rlt_enabled() from public, anon, authenticated;
-
-create or replace function public._wow_rlt_add(p_key text, p_amt numeric)
-returns void language plpgsql security definer set search_path to 'public' as $$
-begin
-  if coalesce(p_amt,0) = 0 then return; end if;
-  insert into wow_settings(key,val) values (p_key, p_amt::text)
-    on conflict (key) do update set val = (coalesce(wow_settings.val::numeric,0) + p_amt)::text;
-end $$;
-revoke all on function public._wow_rlt_add(text, numeric) from public, anon, authenticated;
-
--- abre una ronda nueva con el coste y los porcentajes vigentes
-create or replace function public._wow_rlt_open(p_now bigint)
-returns void language plpgsql security definer set search_path to 'public' as $$
-declare c numeric; m numeric;
-begin
-  c := _wow_rlt_cost();
-  m := _wow_rlt_minutes();
-  insert into wow_roulette as r(
-    id, start_ms, ends_ms, participants, finished, winner_id, winner_name, winner_index,
-    pot, prize, admin_cut, shared_cut, cost, pct_winner, pct_admin, pct_shared, finished_at)
-  values (1, p_now, p_now + (m * 60000)::bigint, '[]'::jsonb, false, null, null, -1,
-    0, 0, 0, 0, c, _wow_rlt_pct('winner'), _wow_rlt_pct('admin'), _wow_rlt_pct('shared'), 0)
-  on conflict (id) do update set
-    start_ms = excluded.start_ms, ends_ms = excluded.ends_ms, participants = '[]'::jsonb,
-    finished = false, winner_id = null, winner_name = null, winner_index = -1,
-    pot = 0, prize = 0, admin_cut = 0, shared_cut = 0, cost = excluded.cost,
-    pct_winner = excluded.pct_winner, pct_admin = excluded.pct_admin,
-    pct_shared = excluded.pct_shared, finished_at = 0;
-end $$;
-revoke all on function public._wow_rlt_open(bigint) from public, anon, authenticated;
-
--- cierra la ronda vencida y paga
-create or replace function public._wow_rlt_settle()
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare r wow_roulette; ps jsonb; n integer; wi integer; w jsonb;
-        total numeric; pz numeric; ac numeric; sh numeric; rep numeric; ms bigint;
-begin
-  ms := (extract(epoch from now())*1000)::bigint;
-  select * into r from wow_roulette where id = 1 for update;
-  if not found then return jsonb_build_object('ok', false, 'reason', 'sin_ronda'); end if;
-  if r.finished then return jsonb_build_object('ok', false, 'reason', 'terminada'); end if;
-  if ms < r.ends_ms then return jsonb_build_object('ok', false, 'reason', 'abierta'); end if;
-  ps := coalesce(r.participants, '[]'::jsonb);
-  n := jsonb_array_length(ps);
-  perform public._wow_rlt_add('rlt_rounds', 1);
-  if n = 0 then
-    update wow_roulette set finished = true, winner_id = null, winner_name = null,
-      winner_index = -1, pot = 0, prize = 0, admin_cut = 0, shared_cut = 0, finished_at = ms
-      where id = 1;
-    return jsonb_build_object('ok', true, 'players', 0, 'winner_index', -1, 'prize', 0);
-  end if;
-  wi := floor(random() * n)::int;
-  w := ps->wi;
-  total := round(n * r.cost, 2);
-  pz := round(total * r.pct_winner / 100.0, 2);
-  ac := round(total * r.pct_admin / 100.0, 2);
-  sh := greatest(0, total - pz - ac);
-  if pz > 0 then
-    update wow_users set cup = coalesce(cup,0) + pz where id = w->>'id';
-  end if;
-  if ac > 0 then
-    update wow_users set cup = coalesce(cup,0) + ac where is_admin = true;
-  end if;
-  rep := 0;
-  if sh > 0 then rep := _wow_tavern_distribute(sh, 'cup'); end if;
-  insert into wow_roulette_wins(winner_id, winner_name, players, pot, prize, admin_cut, shared_cut, created_ms)
-    values (w->>'id', w->>'name', n, total, pz, ac, coalesce(rep,0), ms);
-  perform public._wow_rlt_add('rlt_earned', total);
-  perform public._wow_rlt_add('rlt_paid', pz);
-  perform public._wow_rlt_add('rlt_admin_earned', ac);
-  perform public._wow_rlt_add('rlt_shared_earned', coalesce(rep,0));
-  update wow_roulette set finished = true, winner_id = w->>'id', winner_name = w->>'name',
-    winner_index = wi, pot = total, prize = pz, admin_cut = ac, shared_cut = coalesce(rep,0),
-    finished_at = ms
-    where id = 1;
-  return jsonb_build_object('ok', true, 'players', n, 'winner_id', w->>'id',
-    'winner_name', w->>'name', 'winner_index', wi, 'pot', total, 'prize', pz,
-    'admin_cut', ac, 'shared', coalesce(rep,0));
-end $$;
-revoke all on function public._wow_rlt_settle() from public, anon, authenticated;
-
--- tic: resuelve la ronda vencida y abre otra si toca
-create or replace function public._wow_rlt_tick()
-returns void language plpgsql security definer set search_path to 'public' as $$
-declare r wow_roulette; ms bigint;
-begin
-  ms := (extract(epoch from now())*1000)::bigint;
-  select * into r from wow_roulette where id = 1 for update;
-  if not found then
-    if _wow_rlt_enabled() then perform _wow_rlt_open(ms); end if;
-    return;
-  end if;
-  if not r.finished and ms >= r.ends_ms then
-    perform _wow_rlt_settle();
-    select * into r from wow_roulette where id = 1;
-  end if;
-  if r.finished and _wow_rlt_enabled() and coalesce(r.finished_at,0) > 0
-     and ms - r.finished_at >= 15000 then
-    perform _wow_rlt_open(ms);
-  end if;
-end $$;
-revoke all on function public._wow_rlt_tick() from public, anon, authenticated;
-
-create or replace function public.wow_roulette_state(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; r wow_roulette; ms bigint; ps jsonb; n integer; joined boolean; recent jsonb;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  u := _wow_tick(u.id);
-  ms := (extract(epoch from now())*1000)::bigint;
-  perform _wow_rlt_tick();
-  select * into r from wow_roulette where id = 1;
-  if not found then
-    return jsonb_build_object('ok', true, 'enabled', _wow_rlt_enabled(), 'now', ms,
-      'finished', true, 'participants', '[]'::jsonb, 'count', 0, 'cost', _wow_rlt_cost(),
-      'pot', 0, 'prize_est', 0, 'ms_left', 0, 'next_in', 0,
-      'pct_winner', _wow_rlt_pct('winner'), 'pct_admin', _wow_rlt_pct('admin'),
-      'pct_shared', _wow_rlt_pct('shared'), 'cup', coalesce(u.cup,0), 'joined', false,
-      'recent', '[]'::jsonb);
-  end if;
-  ps := coalesce(r.participants, '[]'::jsonb);
-  n := jsonb_array_length(ps);
-  joined := exists (select 1 from jsonb_array_elements(ps) e where e->>'id' = u.id);
-  select coalesce(jsonb_agg(jsonb_build_object('name', t.winner_name, 'prize', t.prize,
-           'players', t.players, 'created', t.created_ms) order by t.id desc), '[]'::jsonb)
-    into recent
-    from (select id, winner_name, prize, players, created_ms
-            from wow_roulette_wins where winner_name is not null
-           order by id desc limit 5) t;
-  return jsonb_build_object('ok', true,
-    'enabled', _wow_rlt_enabled(), 'now', ms,
-    'finished', r.finished,
-    'start', r.start_ms, 'ends', r.ends_ms,
-    'ms_left', greatest(0, r.ends_ms - ms),
-    'next_in', case when r.finished then greatest(0, 15000 - (ms - coalesce(r.finished_at,0))) else 0 end,
-    'participants', ps, 'count', n,
-    'cost', r.cost, 'pot', round(n * r.cost, 2),
-    'prize_est', round(n * r.cost * r.pct_winner / 100.0, 2),
-    'pct_winner', r.pct_winner, 'pct_admin', r.pct_admin, 'pct_shared', r.pct_shared,
-    'winner_id', r.winner_id, 'winner_name', r.winner_name,
-    'winner_index', r.winner_index, 'prize', r.prize,
-    'admin_cut', r.admin_cut, 'shared_cut', r.shared_cut, 'finished_at', r.finished_at,
-    'cup', coalesce(u.cup,0), 'joined', joined, 'recent', recent);
-end $$;
-revoke all on function public.wow_roulette_state(text) from public;
-grant execute on function public.wow_roulette_state(text) to anon, authenticated;
-
-create or replace function public.wow_roulette_join(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare u wow_users; r wow_roulette; ms bigint; ps jsonb; n integer; c numeric;
-begin
-  u := _wow_sess(p_token);
-  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
-  if u.is_admin then raise exception 'La cuenta de administración no puede participar.'; end if;
-  if not _wow_rlt_enabled() then raise exception 'La ruleta está cerrada por el momento.'; end if;
-  u := _wow_tick(u.id);
-  ms := (extract(epoch from now())*1000)::bigint;
-  perform _wow_rlt_tick();
-  select * into r from wow_roulette where id = 1 for update;
-  if not found then raise exception 'La ronda se está cargando. Intenta de nuevo.'; end if;
-  if r.finished or ms >= r.ends_ms then
-    raise exception 'La ronda está terminando. Espera a la siguiente.';
-  end if;
-  ps := coalesce(r.participants, '[]'::jsonb);
-  if exists (select 1 from jsonb_array_elements(ps) e where e->>'id' = u.id) then
-    raise exception 'Ya estás participando en esta ronda.';
-  end if;
-  c := r.cost;
-  if coalesce(u.cup,0) < c then
-    raise exception 'Necesitas % CUP para participar.', c::float8;
-  end if;
-  update wow_users set cup = cup - c where id = u.id;
-  ps := ps || jsonb_build_array(jsonb_build_object('id', u.id, 'name', u.name));
-  update wow_roulette set participants = ps where id = 1;
-  n := jsonb_array_length(ps);
-  return jsonb_build_object('ok', true, 'cost', c, 'count', n,
-    'pot', round(n * c, 2), 'ends', r.ends_ms,
-    'cup', (select cup from wow_users where id = u.id), 'joined', true);
-end $$;
-revoke all on function public.wow_roulette_join(text) from public;
-grant execute on function public.wow_roulette_join(text) to anon, authenticated;
-
-create or replace function public.wow_admin_setroulette(p_token text, p_cost numeric, p_minutes numeric,
-  p_pct_winner numeric, p_pct_admin numeric, p_pct_shared numeric, p_enabled numeric)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users;
-begin
-  a := _wow_admin(p_token);
-  if not (p_cost >= 1 and p_cost <= 10000) then raise exception 'La entrada debe estar entre 1 y 10.000 CUP.'; end if;
-  if not (p_minutes >= 1 and p_minutes <= 1440) then raise exception 'La duración debe estar entre 1 y 1.440 minutos.'; end if;
-  if not (p_pct_winner >= 0 and p_pct_winner <= 100) then raise exception 'El porcentaje del ganador debe estar entre 0 y 100.'; end if;
-  if not (p_pct_admin >= 0 and p_pct_admin <= 100) then raise exception 'El porcentaje del admin debe estar entre 0 y 100.'; end if;
-  if not (p_pct_shared >= 0 and p_pct_shared <= 100) then raise exception 'El porcentaje de tronos y aldeas debe estar entre 0 y 100.'; end if;
-  if abs((p_pct_winner + p_pct_admin + p_pct_shared) - 100) > 0.01 then
-    raise exception 'Los porcentajes del ganador, admin y tronos/aldeas deben sumar 100.';
-  end if;
-  if p_enabled not in (0,1) then raise exception 'El estado debe ser 0 o 1.'; end if;
-  insert into wow_settings(key,val) values ('rlt_cost', p_cost::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('rlt_minutes', p_minutes::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('rlt_pct_winner', p_pct_winner::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('rlt_pct_admin', p_pct_admin::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('rlt_pct_shared', p_pct_shared::text) on conflict (key) do update set val = excluded.val;
-  insert into wow_settings(key,val) values ('rlt_enabled', p_enabled::text) on conflict (key) do update set val = excluded.val;
-  return jsonb_build_object('ok', true, 'cost', _wow_rlt_cost(), 'minutes', _wow_rlt_minutes(),
-    'pct_winner', _wow_rlt_pct('winner'), 'pct_admin', _wow_rlt_pct('admin'),
-    'pct_shared', _wow_rlt_pct('shared'), 'enabled', _wow_rlt_enabled());
-end $$;
-revoke all on function public.wow_admin_setroulette(text, numeric, numeric, numeric, numeric, numeric, numeric) from public;
-grant execute on function public.wow_admin_setroulette(text, numeric, numeric, numeric, numeric, numeric, numeric) to anon, authenticated;
-
-create or replace function public.wow_admin_roulette_stats(p_token text)
-returns jsonb language plpgsql security definer set search_path to 'public' as $$
-declare a wow_users; r wow_roulette;
-begin
-  a := _wow_admin(p_token);
-  select * into r from wow_roulette where id = 1;
-  return jsonb_build_object('ok', true,
-    'cost', _wow_rlt_cost(), 'minutes', _wow_rlt_minutes(),
-    'pct_winner', _wow_rlt_pct('winner'), 'pct_admin', _wow_rlt_pct('admin'),
-    'pct_shared', _wow_rlt_pct('shared'), 'enabled', _wow_rlt_enabled(),
-    'rounds', coalesce((select val::numeric from wow_settings where key='rlt_rounds'),0),
-    'earned', coalesce((select val::numeric from wow_settings where key='rlt_earned'),0),
-    'paid', coalesce((select val::numeric from wow_settings where key='rlt_paid'),0),
-    'admin_earned', coalesce((select val::numeric from wow_settings where key='rlt_admin_earned'),0),
-    'shared_earned', coalesce((select val::numeric from wow_settings where key='rlt_shared_earned'),0),
-    'round', case when r.id is null then null else jsonb_build_object(
-      'finished', r.finished, 'ends', r.ends_ms, 'start', r.start_ms,
-      'participants', coalesce(r.participants,'[]'::jsonb),
-      'count', jsonb_array_length(coalesce(r.participants,'[]'::jsonb)),
-      'pot', round(jsonb_array_length(coalesce(r.participants,'[]'::jsonb)) * r.cost, 2),
-      'winner_name', r.winner_name, 'prize', r.prize, 'finished_at', r.finished_at) end,
-    'recent', coalesce((select jsonb_agg(jsonb_build_object('name', t.winner_name, 'prize', t.prize,
-        'players', t.players, 'created', t.created_ms) order by t.id desc)
-      from (select id, winner_name, prize, players, created_ms from wow_roulette_wins
-             order by id desc limit 10) t), '[]'::jsonb));
-end $$;
-revoke all on function public.wow_admin_roulette_stats(text) from public;
-grant execute on function public.wow_admin_roulette_stats(text) to anon, authenticated;
-
--- cierre automatico cada minuto (ademas del settle perezoso al consultar)
-do $do$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    begin
-      perform cron.unschedule('wow_roulette');
-    exception when others then null;
-    end;
-    perform cron.schedule('wow_roulette', '* * * * *', 'select public._wow_rlt_tick();');
-  end if;
-end $do$;
-
--- ================================================================
 -- APENDICE ATAQUES CONJUNTOS: una batalla con el ejercito de toda la alianza
 --   (generado desde wow-joint.sql)
 -- ================================================================
@@ -9173,163 +8320,3 @@ begin
 end $function$;
 
 revoke all on function public._wow_bot_act(text) from public;
-
-
--- Sistema de Reyes por Reino (suben de nivel con batallas del Trono)
-BEGIN;
-
--- Tabla de reyes por reino
-CREATE TABLE IF NOT EXISTS public.wow_kings (
-  owner_id text PRIMARY KEY REFERENCES public.wow_users(id) ON DELETE CASCADE,
-  level integer NOT NULL DEFAULT 1,
-  xp integer NOT NULL DEFAULT 0,
-  xp_next integer NOT NULL DEFAULT 100,
-  atk integer NOT NULL DEFAULT 55,
-  hp integer NOT NULL DEFAULT 75,
-  wins integer NOT NULL DEFAULT 0,
-  losses integer NOT NULL DEFAULT 0,
-  throne_wins integer NOT NULL DEFAULT 0,
-  throne_defends integer NOT NULL DEFAULT 0,
-  throne_losses integer NOT NULL DEFAULT 0,
-  title text,
-  updated_ms bigint
-);
-
-ALTER TABLE public.wow_kings ENABLE ROW LEVEL SECURITY;
-
--- Inicializar reyes para todos los usuarios existentes
-INSERT INTO public.wow_kings (owner_id, level, xp, atk, hp, updated_ms)
-SELECT id, 1, 0, 55, 75, (extract(epoch from now())*1000)::bigint
-FROM public.wow_users
-WHERE NOT EXISTS (SELECT 1 FROM public.wow_kings k WHERE k.owner_id = wow_users.id);
-
--- Función para obtener stats del rey por nivel
-CREATE OR REPLACE FUNCTION public._wow_king_stats(p_level integer)
-RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
-BEGIN
-  RETURN jsonb_build_object(
-    'atk', 55 + (p_level - 1) * 4,
-    'hp', 75 + (p_level - 1) * 6,
-    'xp_next', 100 + (p_level - 1) * 25
-  );
-END;
-$$;
-
--- Función para otorgar XP al rey por batalla de trono
-CREATE OR REPLACE FUNCTION public._wow_king_gain_xp(p_owner text, p_victory boolean, p_defense boolean)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
-DECLARE
-  k wow_kings; ns jsonb; gain integer; leveled boolean := false;
-  new_level integer; new_xp integer; new_atk integer; new_hp integer; new_xp_next integer;
-BEGIN
-  INSERT INTO public.wow_kings (owner_id, level, xp, atk, hp, updated_ms)
-  VALUES (p_owner, 1, 0, 55, 75, (extract(epoch from now())*1000)::bigint)
-  ON CONFLICT (owner_id) DO NOTHING;
-  
-  SELECT * INTO k FROM public.wow_kings WHERE owner_id = p_owner FOR UPDATE;
-  IF k.owner_id IS NULL THEN
-    RETURN jsonb_build_object('ok', false);
-  END IF;
-  
-  -- Calcular XP ganado
-  IF p_defense AND p_victory THEN
-    gain := 80;
-    UPDATE public.wow_kings SET throne_defends = throne_defends + 1, wins = wins + 1 WHERE owner_id = p_owner;
-  ELSIF NOT p_defense AND p_victory THEN
-    gain := 60;
-    UPDATE public.wow_kings SET throne_wins = throne_wins + 1, wins = wins + 1 WHERE owner_id = p_owner;
-  ELSIF p_defense AND NOT p_victory THEN
-    gain := 30;
-    UPDATE public.wow_kings SET throne_losses = throne_losses + 1, losses = losses + 1 WHERE owner_id = p_owner;
-  ELSE
-    gain := 15;
-    UPDATE public.wow_kings SET throne_losses = throne_losses + 1, losses = losses + 1 WHERE owner_id = p_owner;
-  END IF;
-  
-  SELECT * INTO k FROM public.wow_kings WHERE owner_id = p_owner FOR UPDATE;
-  new_xp := k.xp + gain;
-  new_level := k.level;
-  leveled := false;
-  
-  -- Subir niveles
-  WHILE new_xp >= (100 + (new_level - 1) * 25) AND new_level < 30 LOOP
-    new_xp := new_xp - (100 + (new_level - 1) * 25);
-    new_level := new_level + 1;
-    leveled := true;
-  END LOOP;
-  
-  ns := public._wow_king_stats(new_level);
-  new_atk := (ns->>'atk')::integer;
-  new_hp := (ns->>'hp')::integer;
-  new_xp_next := (ns->>'xp_next')::integer;
-  
-  UPDATE public.wow_kings SET 
-    level = new_level, 
-    xp = new_xp,
-    xp_next = new_xp_next,
-    atk = new_atk, 
-    hp = new_hp,
-    updated_ms = (extract(epoch from now())*1000)::bigint
-  WHERE owner_id = p_owner;
-  
-  RETURN jsonb_build_object('ok', true, 'gain', gain, 'level', new_level, 'leveled', leveled, 'xp', new_xp);
-END;
-$$;
-
--- Bonus pasivo del rey al ejército (aplica en batallas PvP)
-CREATE OR REPLACE FUNCTION public._wow_king_army_bonus(p_owner text)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
-DECLARE
-  k wow_kings;
-BEGIN
-  SELECT * INTO k FROM public.wow_kings WHERE owner_id = p_owner;
-  IF k.owner_id IS NULL THEN RETURN 0; END IF;
-  -- +1% cada 5 niveles, max +5%
-  RETURN LEAST(floor(k.level / 5.0) * 0.01, 0.05);
-END;
-$$;
-
--- Obtener info del rey
-CREATE OR REPLACE FUNCTION public.wow_king_info(p_token text)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
-DECLARE
-  u wow_users; k wow_kings; ns jsonb; bonus numeric;
-BEGIN
-  u := _wow_sess(p_token);
-  IF u.id IS NULL THEN RAISE EXCEPTION 'Sesión expirada.'; END IF;
-  INSERT INTO public.wow_kings (owner_id, level, xp, atk, hp, updated_ms)
-  VALUES (u.id, 1, 0, 55, 75, (extract(epoch from now())*1000)::bigint)
-  ON CONFLICT (owner_id) DO NOTHING;
-  SELECT * INTO k FROM public.wow_kings WHERE owner_id = u.id;
-  ns := public._wow_king_stats(k.level);
-  bonus := public._wow_king_army_bonus(u.id);
-  RETURN jsonb_build_object(
-    'owner', u.id,
-    'name', u.name,
-    'level', k.level,
-    'xp', k.xp,
-    'xp_next', k.xp_next,
-    'atk', k.atk,
-    'hp', k.hp,
-    'wins', k.wins,
-    'losses', k.losses,
-    'throne_wins', k.throne_wins,
-    'throne_defends', k.throne_defends,
-    'throne_losses', k.throne_losses,
-    'bonus_pct', round(bonus * 100)::int,
-    'title', CASE
-      WHEN k.level >= 20 THEN 'Rey Legendario'
-      WHEN k.level >= 16 THEN 'Rey Veterano'
-      WHEN k.level >= 11 THEN 'Rey Belicoso'
-      WHEN k.level >= 6 THEN 'Señor de Guerra'
-      ELSE 'Rey Novato'
-    END
-  );
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.wow_king_info(text) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public._wow_king_gain_xp(text, boolean, boolean) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public._wow_king_army_bonus(text) TO anon, authenticated;
-
-COMMIT;

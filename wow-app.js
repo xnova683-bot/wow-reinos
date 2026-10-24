@@ -1858,7 +1858,7 @@ const Game = {
     const fb = $("#admFee"); if(fb) fb.onclick = () => this.admFee();
     const pb = $("#admProd"); if(pb) pb.onclick = () => this.admProd();
     const tb = $("#admTavern"); if(tb) tb.onclick = () => this.admTavern();
-    const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel();
+    const ab = $("#admBots"); if(ab) ab.onclick = () => this.admBotsPanel2();
     const cb = $("#admCups"); if(cb) cb.onclick = () => this.admCups();
     const cc = $("#admClock"); if(cc) cc.onclick = () => this.admClock();
     const fi = $("#admFind"); if(fi){
@@ -1874,7 +1874,7 @@ const Game = {
       const r = await sbRpc("wow_admin_bot_auto", { p_token: this.me.token, p_on: !!on });
       logBook("Respuesta del servidor:", r);
       toast(on ? "🌞 " + un((r && r.bots) || 0) + " reinos automáticos jugando y en línea." : "🌙 Reinos automáticos apagados: ya no juegan ni atacan.");
-      await this.admBotsPanel();
+      await this.admBotsPanel2();
       logBook("Panel actualizado: ahora " + (this.botAuto ? "encendidos" : "apagados"));
     }
     catch(e){ if(btn) btn.disabled = false; logBook("FALLO al cambiar:", (e && e.message) || e); toast(shortMsg(e), true); }
@@ -2244,7 +2244,7 @@ const Game = {
   allianceOpts(sel){
     return (this.alliances || []).map(a => '<option value="' + esc(a.id) + '"' + (a.id === sel ? ' selected' : '') + '>[' + esc(a.tag) + '] ' + esc(a.name) + ' · ' + a.members + '/5</option>').join("");
   },
-  async admBotsPanel(){
+  async admBotsPanel2(){
     try{
       const r = await sbRpc("wow_admin_bot_list", { p_token: this.me.token });
       this.bots = r.bots || []; this.botAuto = !!r.auto; this.botNow = r.now; this.botProtect = r.protect;
@@ -2322,7 +2322,7 @@ const Game = {
         const r = await sbRpc("wow_admin_bot_create", { p_token: this.me.token, p_name: nm, p_faction: $("#botFac").value,
           p_level: Number($("#botLvl").value), p_king: king || null, p_alliance: $("#botAll").value || null });
         toast('"' + r.name + '" nace en la casilla ' + r.pos + ' con ' + un(r.points) + ' puntos.');
-        await this.admBotsPanel();
+        await this.admBotsPanel2();
       }catch(e){ ab.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const ag = $("#botAllGo"); if(ag) ag.onclick = async () => {
@@ -2332,45 +2332,45 @@ const Game = {
         const r = await sbRpc("wow_admin_bot_ally", { p_token: this.me.token, p_id: "", p_alliance: al });
         toast(al ? ("Se unen " + un(r.n || 0) + " reinos." + (r.llenos ? " " + r.llenos + " no caben (máximo 5 por alianza)." : ""))
                  : ("Salen de la alianza " + un(r.n || 0) + " reinos."));
-        await this.admBotsPanel();
+        await this.admBotsPanel2();
       }catch(e){ ag.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const ar = $("#botRun"); if(ar) ar.onclick = async () => {
       ar.disabled = true;
       try{ logBook("Jugar ahora pulsado");
-        const r = await sbRpc("wow_admin_bot_run", { p_token: this.me.token }); toast("Han jugado " + un(r.acted || 0) + " reinos."); await this.admBotsPanel(); }
+        const r = await sbRpc("wow_admin_bot_run", { p_token: this.me.token }); toast("Han jugado " + un(r.acted || 0) + " reinos."); await this.admBotsPanel2(); }
       catch(e){ ar.disabled = false; logBook("FALLO jugar ahora:", (e && e.message) || e); notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     const ap = $("#botPurge"); if(ap) ap.onclick = async () => {
       if(!confirm("¿Quitar TODOS los reinos automáticos? Desaparecerán del mapa y del ranking.")) return;
       ap.disabled = true;
-      try{ const r = await sbRpc("wow_admin_bot_purge", { p_token: this.me.token }); toast("Quitados " + un(r.deleted || 0) + " reinos."); await this.admBotsPanel(); }
+      try{ const r = await sbRpc("wow_admin_bot_purge", { p_token: this.me.token }); toast("Quitados " + un(r.deleted || 0) + " reinos."); await this.admBotsPanel2(); }
       catch(e){ ap.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
     document.querySelectorAll("#modalBox [data-b]").forEach(el => {
       if(el.dataset.b === "lvl") el.onchange = async () => {
         try{ await sbRpc("wow_admin_bot_set", { p_token: this.me.token, p_id: el.dataset.id, p_level: Number(el.value) });
-          toast("Dificultad: " + this.botLevelName(el.value) + "."); await this.admBotsPanel(); }
+          toast("Dificultad: " + this.botLevelName(el.value) + "."); await this.admBotsPanel2(); }
         catch(e){ toast(shortMsg(e), true); }
       };
       if(el.dataset.b === "ally") el.onchange = async () => {
         try{
           await sbRpc("wow_admin_bot_ally", { p_token: this.me.token, p_id: el.dataset.id, p_alliance: el.value });
           toast(el.value ? "Se une a la alianza." : "Sale de la alianza.");
-          await this.admBotsPanel();
-        }catch(e){ toast(shortMsg(e), true); await this.admBotsPanel(); }
+          await this.admBotsPanel2();
+        }catch(e){ toast(shortMsg(e), true); await this.admBotsPanel2(); }
       };
       if(el.dataset.b === "ren") el.onclick = () => this.admRenameBot(el.dataset.id);
       if(el.dataset.b === "on") el.onclick = async () => {
         const on = el.dataset.on !== "1";
         try{ logBook("Pausar/Reanudar " + el.dataset.id + " -> " + (on ? "activo" : "pausado"));
           await sbRpc("wow_admin_bot_stop", { p_token: this.me.token, p_id: el.dataset.id, p_on: on });
-          toast(on ? "Vuelve a jugar." : "Pausado."); await this.admBotsPanel(); }
+          toast(on ? "Vuelve a jugar." : "Pausado."); await this.admBotsPanel2(); }
         catch(e){ logBook("FALLO pausar/reanudar:", (e && e.message) || e); toast(shortMsg(e), true); }
       };
       if(el.dataset.b === "del") el.onclick = async () => {
         if(!confirm("¿Quitar este reino? Se borrará con todo lo suyo (edificios, tropas y plazas).")) return;
-        try{ await sbRpc("wow_admin_bot_del", { p_token: this.me.token, p_id: el.dataset.id }); toast("Reino quitado."); await this.admBotsPanel(); }
+        try{ await sbRpc("wow_admin_bot_del", { p_token: this.me.token, p_id: el.dataset.id }); toast("Reino quitado."); await this.admBotsPanel2(); }
         catch(e){ toast(shortMsg(e), true); }
       };
     });
@@ -2410,6 +2410,30 @@ const Game = {
       await this.loadBotMarket();
     }catch(e){ toast(shortMsg(e), true); }
   },
+  admEditBot(id){
+    const b=(this.bots||[]).find(x=>x.id===id); if(!b) return;
+    const p=b.preset||'balanced';
+    modal('<h2 style="margin-top:0;color:var(--gold)">⚙️ Editar reino automático</h2>'+
+      '<p class="hint"><b>'+esc(b.name)+'</b> · usuario '+esc(b.id)+'</p>'+
+      '<div class="admInputs admInputsGrid">'+
+        '<label>Personalidad<select id="bePreset"><option value="balanced"'+(p==='balanced'?' selected':'')+'>Equilibrado</option><option value="aggressive"'+(p==='aggressive'?' selected':'')+'>Agresivo</option><option value="turtle"'+(p==='turtle'?' selected':'')+'>Defensivo</option><option value="teamplayer"'+(p==='teamplayer'?' selected':'')+'>Colaborador</option><option value="opportunist"'+(p==='opportunist'?' selected':'')+'>Oportunista</option></select></label>'+
+        '<label>Dificultad<select id="beLvl">'+this.botLevelOpts(b.level)+'</select></label>'+
+        '<label>Alianza<select id="beAll"><option value="">— sin alianza —</option>'+this.allianceOpts(b.alliance||"")+'</select></label>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;justify-content:center;margin-top:12px">'+
+        '<button class="btn" id="beSave">Guardar</button><button class="btn sm" id="beBack">Volver</button>'+
+      '</div>');
+    $("#beBack").onclick=()=>this.admBotsPanel2();
+    $("#beSave").onclick=async()=>{
+      try{
+        await sbRpc("wow_admin_bot_set",{p_token:this.me.token,p_id:id,p_preset:$("#bePreset").value,p_level:Number($("#beLvl").value)});
+        if(($("#beAll").value||"")!==(b.alliance||"")) await sbRpc("wow_admin_bot_ally",{p_token:this.me.token,p_id:id,p_alliance:$("#beAll").value||""});
+        toast("Guardado.");
+        await this.admBotsPanel2();
+      }catch(e){toast(shortMsg(e),true);}
+    };
+  },
+
   admRenameBot(id){
     const b = (this.bots || []).find(x => x.id === id); if(!b) return;
     modal('<h2 style="margin-top:0;color:var(--gold)">✏️ Nombre del reino</h2>' +
@@ -2423,7 +2447,7 @@ const Game = {
       const nn = ($("#botNew").value || "").trim();
       if(nn.length < 2) return notice($("#admMsg"), "Escribe el nombre del reino.", "danger");
       go.disabled = true;
-      try{ await sbRpc("wow_admin_bot_rename", { p_token: this.me.token, p_id: b.id, p_name: nn }); toast("Nombre cambiado."); await this.admBotsPanel(); }
+      try{ await sbRpc("wow_admin_bot_rename", { p_token: this.me.token, p_id: b.id, p_name: nn }); toast("Nombre cambiado."); await this.admBotsPanel2(); }
       catch(e){ go.disabled = false; notice($("#admMsg"), shortMsg(e), "danger"); }
     };
   },
