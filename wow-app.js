@@ -3460,7 +3460,8 @@ Game.loadPalace = async function(){
     '<div class="palTop">' +
       '<div class="palKing"><img class="pkImg" src="'+kingImg+'" alt="Rey"><div class="pkOverlay">'+slotsHtml+'<div class="pkInfo">' +
         '<div class="pkCrown">👑</div><div class="pkName">'+esc(h.name||"Rey")+'</div>' +
-        '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%</div></div></div></div>' +
+        (king ? '<div class="pkKingBar"><span class="pkKLabel">'+esc(king.title)+' Nv.'+king.level+'</span><div class="pkKTrack"><div class="pkKFill" style="width:'+(king.xp_next?Math.min(100,Math.max(0,(king.xp/king.xp_next)*100)):0)+'%"></div></div><span class="pkKXp">'+un(king.xp)+' / '+un(king.xp_next)+' XP</span></div>' : '') +
+        '<div class="hint">Ataque: +'+(Number(bonus.atk)||0)+'% · Defensa: +'+(Number(bonus.def)||0)+'%'+(king&&king.bonus_pct? ' · Ejército +'+king.bonus_pct+'%':'')+'</div></div></div></div>' +
     '</div>' + khtml +
     '<div class="palInvHead"><div class="secTitle">🎒 Inventario <span class="hint">('+items.length+' tipos)</span></div>' +
       '<input id="palSearch" class="palSearch" type="search" placeholder="Buscar objeto…" autocomplete="off">' +
