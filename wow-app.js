@@ -1145,6 +1145,7 @@ const Game = {
     modal(`<h2 style="margin-top:0;color:var(--gold)">⚔️ Atacar a ${esc(r.name)}</h2>
       <p style="color:var(--dim);font-size:13px;margin:4px 0 8px">Elige cuántas tropas enviar. La batalla se resuelve al llegar; los supervivientes vuelven con el botín.</p>
       ${rows}
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px"><input type="checkbox" id="atkKing" checked> 👑 Enviar al Rey a la batalla</label>
       <p style="color:var(--dim);font-size:11px;margin-top:10px;line-height:1.5">⚖️ Contadores: 🗡️ soldado ▸ 🐎 jinete · 🏹 arquero ▸ soldado, 🔮 mago y 🐉 dragón · 🐎 jinete ▸ arquero y 🛡️ paladín · 🔮 mago ▸ soldado y jinete · 🛡️ paladín ▸ mago y dragón · 🐉 dragón ▸ soldado, jinete y mago. El ejército con ventaja de tipo (y números) rompe antes la moral del rival.</p>
       ${travel != null ? `<p style="color:var(--dim);font-size:12px;margin-top:10px">⏱ Viaje de ida: ${tfmt(travel)} · vuelta: otro tanto.</p>` : ""}
       <div style="text-align:center;margin-top:14px"><button class="btn" id="atkGo">⚔️ Enviar ataque</button></div>`);
@@ -1166,12 +1167,13 @@ const Game = {
       if(v > 0) payload[k] = v;
     });
     if(!Object.keys(payload).length) return toast("Elige al menos una tropa.", true);
+    const sendKing = document.getElementById("atkKing") ? document.getElementById("atkKing").checked : true;
     try{
-      const res = await sbRpc("wow_attack", { p_token: this.me.token, p_target: r.id, p_troops: payload });
+      const res = await sbRpc("wow_attack", { p_token: this.me.token, p_target: r.id, p_troops: payload, p_send_king: sendKing });
       modalClose();
       toast("⚔️ Ataque enviado. Llegará en " + tfmt(res.travel) + ".");
       await this.refresh();
-      try{ await this.loadMil(); }catch(_){}
+      try{ await this.loadMil(); this.loadPalace && this.loadPalace(); }catch(_){}
       const mt = document.querySelector('.gameTabs [data-tab="mil"]');
       if(mt){ mt.click(); }else{ this.tab = "mil"; if(typeof this.showTab === "function") this.showTab("mil"); }
     }catch(e){ toast(shortMsg(e), true); }
