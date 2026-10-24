@@ -950,6 +950,7 @@ const Game = {
   },
   battleSummary(b){
     if(!b) return "";
+    try{
     const K = ["soldado","arquero","jinete","mago","paladin","dragon"];
     const em = k => (TRP[k] || {}).e || "⚔️";
     const nm = k => (TRP[k] || {}).n || k;
@@ -967,8 +968,12 @@ const Game = {
       : (nR >= 20 ? "se agotó el tiempo" : "sin desbandada");
     const cell = (q0, q1, qL) => `<b>${un(q0)}</b> → <span class="btlQ">${un(q1)}</span>` +
       (qL > 0 ? ` <span class="btlL">-${un(qL)}</span>` : "");
-    const rows = K.filter(k => (num(as, k) + num(ds, k)) > 0).map(k =>
-      `<tr><td class="btlT">${em(k)} ${nm(k)}</td>` +
+    let keys2 = K.slice();
+    if((as&&as.rey)|| (ds&&ds.rey) || (al&&al.rey) || (dl&&dl.rey)) keys2.push('rey');
+    const emr = k=> k==='rey' ? '\ud83d\udc51' : ((TRP[k]||{}).e||'\u2694\ufe0f');
+    const nmr = k=> k==='rey' ? 'Rey' : ((TRP[k]||{}).n||k);
+    const rows = keys2.filter(k=> k==='rey' ? ((as&&as.rey)||(ds&&ds.rey)||(al&&al.rey)||(dl&&dl.rey)) : ((Number((as&&as[k])||0))+(Number((ds&&ds[k])||0)))>0).map(k=>
+      `<tr><td class="btlT">${emr(k)} ${nmr(k)}</td>` +
       `<td>${cell(num(as, k), num(al, k), num(ax, k))}</td>` +
       `<td>${cell(num(ds, k), num(dl, k), num(dx, k))}</td></tr>`).join("");
     const rrows = (b.rounds || []).map(x =>
@@ -995,7 +1000,7 @@ const Game = {
       <div class="btlFoot">Moral final · ⚔️ <b>${un(b.a_morale)}</b> / 🛡️ <b>${un(b.d_morale)}</b></div>
       ${rrows ? `<details class="btlD"><summary>Ver rondas (${nR})</summary>${rrows}</details>` : ""}
     </div>`;
-  },
+  }, }catch(e){ return "<div class=\"btl\"><div class=\"btlHead\">Batalla</div><div>Resumen no disponible.</div></div>"; }
   async loadMil(){
     if(!this.me) return;
     try{
